@@ -21,7 +21,7 @@ import { colors } from '../styles/theme';
  * Allows users to point the camera at surroundings, take a photo,
  * review/retake it, and confirm the photo to return to the home screen.
  */
-export function CameraModal({ visible, onClose, onCaptureConfirmed, onChooseFromGallery }) {
+export function CameraModal({ visible, onClose, onCaptureConfirmed, onCaptureError, onChooseFromGallery }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState('back');
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -30,6 +30,21 @@ export function CameraModal({ visible, onClose, onCaptureConfirmed, onChooseFrom
   const [cameraError, setCameraError] = useState(null);
 
   const cameraRef = useRef(null);
+  const captureErrorCallback = useRef(onCaptureError);
+  captureErrorCallback.current = onCaptureError;
+
+  const requestCameraPermission = async () => {
+    try {
+      const result = await requestPermission();
+      if (!result?.granted) {
+        captureErrorCallback.current?.('Camera permission is required to capture a photo.');
+      }
+    } catch {
+      const message = 'Unable to request camera permission.';
+      setCameraError(message);
+      captureErrorCallback.current?.(message);
+    }
+  };
 
   // When modal visibility changes, reset state and announce to screen readers
   useEffect(() => {
@@ -44,9 +59,7 @@ export function CameraModal({ visible, onClose, onCaptureConfirmed, onChooseFrom
 
       // If permissions not yet granted, prompt for them
       if (!permission?.granted) {
-        requestPermission().catch(() => {
-          setCameraError('Unable to request camera permission.');
-        });
+        requestCameraPermission();
       }
     } else {
       // Clean up when modal closes
@@ -83,6 +96,7 @@ export function CameraModal({ visible, onClose, onCaptureConfirmed, onChooseFrom
         'Photo captured. Review your photograph. Tap Retake Photo to try again, or Use Photo to confirm.'
       );
     } catch (err) {
+      onCaptureError?.('Could not capture photograph. Please point camera steadily and try again.');
       Alert.alert(
         'Capture Failed',
         'Could not capture photograph. Please point camera steadily and try again.'
@@ -148,7 +162,7 @@ export function CameraModal({ visible, onClose, onCaptureConfirmed, onChooseFrom
 
             <View style={styles.permissionActions}>
               <Pressable
-                onPress={() => requestPermission()}
+                onPress={requestCameraPermission}
                 accessibilityRole="button"
                 accessibilityLabel="Grant Camera Permission"
                 accessibilityHint="Asks device or browser for permission to use camera"
@@ -266,7 +280,9 @@ export function CameraModal({ visible, onClose, onCaptureConfirmed, onChooseFrom
               mode="picture"
               onCameraReady={() => setIsCameraReady(true)}
               onMountError={(error) => {
-                setCameraError('Camera failed to start. Please verify device permissions and hardware.');
+                const message = 'Camera failed to start. Please verify device permissions and hardware.';
+                setCameraError(message);
+                onCaptureError?.(message);
               }}
             />
 

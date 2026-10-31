@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,7 +16,18 @@ import { colors } from './src/styles/theme';
 import { FeatureCard } from './src/components/FeatureCard';
 import { AnalysisResult } from './src/components/AnalysisResult';
 import { CameraModal } from './src/components/CameraModal';
+import { VoiceAssistant, VOICE_ASSISTANT_STATES } from './src/components/VoiceAssistant';
 import { analyzeImageWithGemini } from './src/services/gemini';
+import { createSpokenAnalysis, speakText, stopSpeaking } from './src/services/textToSpeech';
+
+function formatGeminiResponse(result) {
+  return [
+    result.scene,
+    result.objects?.length ? `Objects: ${result.objects.join(', ')}.` : '',
+    result.signsAndText?.length ? `Text found: ${result.signsAndText.join(', ')}.` : '',
+    result.observations,
+  ].filter((part) => typeof part === 'string' && part.trim()).join(' ');
+}
 
 export default function App() {
   const [image, setImage] = useState(null);
@@ -26,21 +37,127 @@ export default function App() {
   const [analysis, setAnalysis] = useState(null);
   const [analysing, setAnalysing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
+  const [voiceState, setVoiceState] = useState(VOICE_ASSISTANT_STATES.IDLE);
+  const [voiceResponse, setVoiceResponse] = useState('');
+  const [voiceError, setVoiceError] = useState('');
+  const [voiceStatus, setVoiceStatus] = useState('');
   const scrollRef = useRef(null);
+  const speechRequestRef = useRef(0);
+  const lastSpeechRef = useRef('');
+
+  useEffect(() => () => {
+    speechRequestRef.current += 1;
+    stopSpeaking().catch(() => {});
+  }, []);
+
+  const cancelSpeech = () => {
+    speechRequestRef.current += 1;
+    stopSpeaking().catch(() => {});
+    if (voiceState === VOICE_ASSISTANT_STATES.SPEAKING) {
+      setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
+      setVoiceStatus('Speech stopped. Ready for another image.');
+    }
+  };
+
+  const speakResponse = async (text) => {
+    const requestId = ++speechRequestRef.current;
+    const cleanText = typeof text === 'string' ? text.trim() : '';
+    if (!cleanText) {
+      setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
+      setVoiceError('No description was available to speak.');
+      setVoiceStatus('No description was available to speak.');
+      return;
+    }
+
+    setVoiceState(VOICE_ASSISTANT_STATES.PROCESSING);
+    setVoiceStatus('Preparing the spoken description.');
+    setVoiceError('');
+
+    try {
+      await stopSpeaking();
+      if (requestId !== speechRequestRef.current) return;
+
+      speakText(cleanText, {
+        onStart: () => {
+          if (requestId !== speechRequestRef.current) return;
+          setVoiceState(VOICE_ASSISTANT_STATES.SPEAKING);
+          setVoiceStatus('Speaking the image description now.');
+        },
+        onDone: () => {
+          if (requestId !== speechRequestRef.current) return;
+          setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
+          setVoiceStatus('Description finished. Ready for another image.');
+        },
+        onStopped: () => {
+          if (requestId !== speechRequestRef.current) return;
+          setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
+          setVoiceStatus('Speech stopped. Ready for another image.');
+        },
+        onError: () => {
+          if (requestId !== speechRequestRef.current) return;
+          const message = 'Text-to-speech is unavailable. You can still read the analysis on screen.';
+          setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
+          setVoiceError(message);
+          setVoiceStatus(message);
+        },
+      });
+    } catch {
+      if (requestId !== speechRequestRef.current) return;
+      const message = 'Text-to-speech is unavailable. You can still read the analysis on screen.';
+      setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
+      setVoiceError(message);
+      setVoiceStatus(message);
+    }
+  };
+
+  const repeatResponse = () => {
+    if (lastSpeechRef.current.trim()) speakResponse(lastSpeechRef.current);
+  };
+
+  const handleStopSpeaking = async () => {
+    speechRequestRef.current += 1;
+    setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
+    setVoiceStatus('Speech stopped. Ready for another image.');
+    setVoiceError('');
+    try {
+      await stopSpeaking();
+    } catch {
+      const message = 'Unable to stop speech. Please try again.';
+      setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
+      setVoiceError(message);
+      setVoiceStatus(message);
+    }
+  };
 
   const openCamera = () => {
+    cancelSpeech();
     setCameraVisible(true);
   };
 
   const handleCaptureConfirmed = (capturedImage) => {
+    cancelSpeech();
     setImage(capturedImage);
     setAnalysis(null);
     setAnalysisError(null);
+    setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
+    setVoiceResponse('');
+    setVoiceError('');
+    setVoiceStatus('');
     setCameraVisible(false);
   };
+
+  const handleCameraCaptureError = (message) => {
+    cancelSpeech();
+    setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
+    setVoiceResponse('');
+    setVoiceError(message);
+    setVoiceStatus(message);
+  };
+
   // Gallery upload flow
   const chooseImage = async () => {
     if (busy) return;
+    cancelSpeech();
     setBusy(true);
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -64,6 +181,10 @@ export default function App() {
         // Clear previous analysis when a new image is picked.
         setAnalysis(null);
         setAnalysisError(null);
+        setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
+        setVoiceResponse('');
+        setVoiceError('');
+        setVoiceStatus('');
       }
     } catch (error) {
       Alert.alert('Unable to open gallery', 'Please try again in a moment.');
@@ -74,17 +195,29 @@ export default function App() {
 
   const analyzeImage = async () => {
     if (!image?.uri || analysing) return;
+    cancelSpeech();
     setAnalysing(true);
     setAnalysis(null);
     setAnalysisError(null);
+    setVoiceState(VOICE_ASSISTANT_STATES.PROCESSING);
+    setVoiceResponse('');
+    setVoiceError('');
+    setVoiceStatus('Analyzing the image.');
     try {
       const result = await analyzeImageWithGemini(image);
       setAnalysis(result);
+      setVoiceResponse(formatGeminiResponse(result));
+      lastSpeechRef.current = createSpokenAnalysis(result);
+      speakResponse(lastSpeechRef.current);
       setTimeout(() => {
         scrollRef.current?.scrollTo({ y: 380, animated: true });
       }, 150);
     } catch (err) {
-      setAnalysisError(err.message ?? 'An unexpected error occurred. Please try again.');
+      const message = err.message ?? 'An unexpected error occurred. Please try again.';
+      setAnalysisError(message);
+      setVoiceError(message);
+      setVoiceStatus(message);
+      setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
     } finally {
       setAnalysing(false);
     }
@@ -110,6 +243,16 @@ export default function App() {
           <Text style={styles.title}>See the world{'\n'}differently.</Text>
           <Text style={styles.intro}>An intelligent companion to help you understand the world around you.</Text>
         </View>
+
+        <VoiceAssistant
+          state={voiceState}
+          responseText={voiceResponse}
+          errorMessage={voiceError}
+          statusAnnouncement={voiceStatus}
+          canRepeatResponse={Boolean(voiceResponse.trim() && lastSpeechRef.current.trim())}
+          onRepeatResponse={repeatResponse}
+          onStopSpeaking={handleStopSpeaking}
+        />
 
         {/* Image Selection / Preview Card */}
         <View style={styles.uploadCard}>
@@ -145,7 +288,7 @@ export default function App() {
                 >
                   <Text style={styles.cameraActionText}>📷 Open Camera</Text>
                 </Pressable>
-                <Pressable onPress={() => { setImage(null); setAnalysis(null); setAnalysisError(null); }} accessibilityRole="button" accessibilityLabel="Remove selected image" style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}>
+                <Pressable onPress={() => { cancelSpeech(); lastSpeechRef.current = ''; setImage(null); setAnalysis(null); setAnalysisError(null); setVoiceResponse(''); setVoiceState(VOICE_ASSISTANT_STATES.IDLE); setVoiceStatus(''); }} accessibilityRole="button" accessibilityLabel="Remove selected image" style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}>
                   <Text style={styles.removeButtonText}>Remove</Text>
                 </Pressable>
               </View>
@@ -259,6 +402,7 @@ export default function App() {
         visible={cameraVisible}
         onClose={() => setCameraVisible(false)}
         onCaptureConfirmed={handleCaptureConfirmed}
+        onCaptureError={handleCameraCaptureError}
         onChooseFromGallery={chooseImage}
       />
     </SafeAreaView>
