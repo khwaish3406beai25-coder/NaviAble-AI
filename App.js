@@ -17,6 +17,7 @@ import { FeatureCard } from './src/components/FeatureCard';
 import { AnalysisResult } from './src/components/AnalysisResult';
 import { CameraModal } from './src/components/CameraModal';
 import { analyzeImageWithGemini } from './src/services/gemini';
+import { detectObjectsWithYolo } from './src/services/yolo';
 
 export default function App() {
   const [image, setImage] = useState(null);
@@ -26,6 +27,10 @@ export default function App() {
   const [analysis, setAnalysis] = useState(null);
   const [analysing, setAnalysing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
+  // YOLO detection state
+  const [yoloResult, setYoloResult] = useState(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectError, setDetectError] = useState(null);
   const scrollRef = useRef(null);
 
   const openCamera = () => {
@@ -36,6 +41,8 @@ export default function App() {
     setImage(capturedImage);
     setAnalysis(null);
     setAnalysisError(null);
+    setYoloResult(null);
+    setDetectError(null);
     setCameraVisible(false);
   };
   // Gallery upload flow
@@ -64,6 +71,8 @@ export default function App() {
         // Clear previous analysis when a new image is picked.
         setAnalysis(null);
         setAnalysisError(null);
+        setYoloResult(null);
+        setDetectError(null);
       }
     } catch (error) {
       Alert.alert('Unable to open gallery', 'Please try again in a moment.');
@@ -87,6 +96,24 @@ export default function App() {
       setAnalysisError(err.message ?? 'An unexpected error occurred. Please try again.');
     } finally {
       setAnalysing(false);
+    }
+  };
+
+  const detectObjects = async () => {
+    if (!image?.uri || detecting) return;
+    setDetecting(true);
+    setYoloResult(null);
+    setDetectError(null);
+    try {
+      const result = await detectObjectsWithYolo(image);
+      setYoloResult(result);
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ y: 500, animated: true });
+      }, 150);
+    } catch (err) {
+      setDetectError(err.message ?? 'Object detection failed. Please try again.');
+    } finally {
+      setDetecting(false);
     }
   };
 
@@ -176,6 +203,34 @@ export default function App() {
                 )}
               </Pressable>
 
+              {/* Detect Objects (YOLO) button */}
+              <Pressable
+                onPress={detectObjects}
+                disabled={detecting}
+                accessibilityRole="button"
+                accessibilityLabel="Detect objects in image"
+                accessibilityHint="Sends the image to the YOLO model to identify objects"
+                style={({ pressed }) => [
+                  styles.outlineButton,
+                  styles.detectButton,
+                  pressed && styles.pressed,
+                  detecting && styles.disabled,
+                ]}
+              >
+                {detecting ? (
+                  <ActivityIndicator color={colors.primary} size="small" accessibilityLabel="Detecting objects, please wait" />
+                ) : (
+                  <Text style={styles.outlineButtonText}>⌕ Detect Objects</Text>
+                )}
+              </Pressable>
+
+              {/* YOLO detection error */}
+              {detectError ? (
+                <View style={styles.errorBox} accessible accessibilityRole="alert" accessibilityLabel={`Detection error: ${detectError}`}>
+                  <Text style={styles.errorText}>{detectError}</Text>
+                </View>
+              ) : null}
+
               {/* Analysis success badge */}
               {analysis ? (
                 <Pressable
@@ -231,6 +286,39 @@ export default function App() {
 
         {/* Analysis results rendered outside the upload card */}
         {analysis ? <AnalysisResult result={analysis} /> : null}
+
+        {/* YOLO detection results */}
+        {yoloResult ? (
+          <View style={styles.yoloCard}>
+            <View style={styles.yoloHeader}>
+              <Text style={styles.yoloHeaderIcon} accessibilityElementsHidden>⌕</Text>
+              <Text style={styles.yoloHeaderTitle}>Object Detection</Text>
+              <View style={styles.yoloBadge}>
+                <Text style={styles.yoloBadgeText}>{yoloResult.count} found</Text>
+              </View>
+            </View>
+            <Text
+              style={styles.yoloSummary}
+              accessible
+              accessibilityLabel={yoloResult.summary}
+            >
+              {yoloResult.summary}
+            </Text>
+            {yoloResult.detections.length > 0 && (
+              <View style={styles.yoloList}>
+                {yoloResult.detections.map((d, idx) => (
+                  <View key={idx} style={styles.yoloItem}>
+                    <Text style={styles.yoloLabel}>{d.label}</Text>
+                    <Text style={styles.yoloConf}>{Math.round(d.confidence * 100)}%</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <Text style={styles.yoloDisclaimer}>
+              Powered by YOLOv8n · Results may vary by image quality.
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.sectionHeading}>
           <View>
@@ -314,6 +402,19 @@ const styles = StyleSheet.create({
   phasePill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: colors.softLavender, marginBottom: 3 },
   phaseText: { fontSize: 10, letterSpacing: 0.7, fontWeight: '700', color: colors.deepLavender },
   features: { gap: 10 },
+  detectButton: { marginTop: 10, width: '100%' },
+  yoloCard: { marginTop: 18, backgroundColor: colors.white, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: 20, shadowColor: '#3C2B55', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  yoloHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  yoloHeaderIcon: { color: colors.primary, fontSize: 20, fontWeight: '700' },
+  yoloHeaderTitle: { fontSize: 17, fontWeight: '700', color: colors.text, letterSpacing: -0.3, flex: 1 },
+  yoloBadge: { backgroundColor: colors.softLavender, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  yoloBadgeText: { fontSize: 11, fontWeight: '700', color: colors.primary, letterSpacing: 0.4 },
+  yoloSummary: { fontSize: 15, lineHeight: 22, color: colors.text, marginBottom: 14 },
+  yoloList: { gap: 6, marginBottom: 14 },
+  yoloItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.softLavender, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  yoloLabel: { fontSize: 14, fontWeight: '600', color: colors.text, textTransform: 'capitalize' },
+  yoloConf: { fontSize: 13, fontWeight: '700', color: colors.primary },
+  yoloDisclaimer: { fontSize: 11, lineHeight: 17, color: colors.secondaryText, fontStyle: 'italic', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
   footer: { marginTop: 28, alignItems: 'center' },
   footerRule: { width: 36, height: 3, borderRadius: 2, backgroundColor: colors.border, marginBottom: 13 },
   footerText: { maxWidth: 250, color: colors.secondaryText, fontSize: 12, lineHeight: 18, textAlign: 'center' },
