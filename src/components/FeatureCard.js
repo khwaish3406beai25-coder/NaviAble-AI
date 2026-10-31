@@ -22,8 +22,8 @@ const styles = StyleSheet.create({
   icon: { color: colors.deepLavender, fontSize: 22, fontWeight: '700' },
   copy: { flex: 1, paddingRight: 6 },
   title: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
-  description: { color: colors.secondaryText, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  description: { color: colors.secondaryText, fontSize: 14, lineHeight: 20, marginTop: 2 },
   status: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 12, backgroundColor: '#F5F1F8' },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginRight: 5 },
-  statusText: { color: colors.deepLavender, fontSize: 9, lineHeight: 12, fontWeight: '700' },
+  statusText: { color: colors.deepLavender, fontSize: 11, lineHeight: 15, fontWeight: '700' },
 });
