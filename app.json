@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "NaviAble AI",
+    "slug": "naviable-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F6F7F1",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow NaviAble AI to access your photos so you can choose an image for visual assistance.",
+          "cameraPermission": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance.",
+          "microphonePermission": "Allow NaviAble AI to listen for your wake phrase and voice commands when voice assistance is enabled."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow NaviAble AI to listen for your wake phrase and voice commands when voice assistance is enabled.",
+          "speechRecognitionPermission": "Allow NaviAble AI to recognize commands after you activate voice assistance.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.tts",
+            "com.google.android.as",
+            "com.samsung.android.bixby.agent"
+          ]
+        }
+      ],
+      "expo-dev-client"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance.",
+        "NSPhotoLibraryUsageDescription": "Allow NaviAble AI to access your photos so you can choose an image for visual assistance.",
+        "NSMicrophoneUsageDescription": "Allow NaviAble AI to listen for your wake phrase and voice commands when voice assistance is enabled.",
+        "NSSpeechRecognitionUsageDescription": "Allow NaviAble AI to recognize commands after you activate voice assistance."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E4EDE5",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO"
+      ],
+      "package": "com.anonymous.naviableai"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
