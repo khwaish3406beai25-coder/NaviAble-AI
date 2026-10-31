@@ -143,7 +143,7 @@ export async function analyzeImageWithGemini(imageInput) {
     try {
       const errJson = await response.json();
       rawError = errJson?.error?.message || '';
-    } catch {}
+    } catch { }
 
     const sanitizedError = sanitizeMessage(rawError, apiKey);
 

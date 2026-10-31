@@ -93,7 +93,7 @@ export default function App() {
 
         <View style={styles.welcome}>
           <Text style={styles.eyebrow}>A LITTLE MORE CLARITY, EVERY DAY</Text>
-          <Text style={styles.title}>See the world{ '\n' }differently.</Text>
+          <Text style={styles.title}>See the world{'\n'}differently.</Text>
           <Text style={styles.intro}>An intelligent companion to help you understand the world around you.</Text>
         </View>
 
