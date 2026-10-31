@@ -5,36 +5,40 @@ import { useSpeech } from '../services/speechService';
 /**
  * Renders a single labelled section of the analysis result.
  */
-function Section({ label, accessibilityLabel, children }) {
+function Section({ label, children, accessibilityLabel }) {
   return (
     <View
       style={styles.section}
       accessible
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole="text"
+      accessibilityLabel={accessibilityLabel || label}
     >
-      <Text style={styles.sectionLabel}>{label}</Text>
+      <Text style={styles.sectionLabel} accessibilityElementsHidden>
+        {label.toUpperCase()}
+      </Text>
       {children}
     </View>
   );
 }
 
 /**
- * Renders a bullet-list of string items. Shows a placeholder when empty.
+ * Renders an array of strings as a bulleted list.
  */
 function BulletList({ items, emptyText }) {
   if (!items || items.length === 0) {
     return <Text style={styles.emptyText}>{emptyText}</Text>;
   }
+
   return (
-    <>
-      {items.map((item, idx) => (
-        <View key={idx} style={styles.bullet}>
-          <Text style={styles.bulletDot} accessibilityElementsHidden>•</Text>
+    <View style={styles.list}>
+      {items.map((item, index) => (
+        <View key={index} style={styles.bulletRow}>
+          <Text style={styles.bullet} accessibilityElementsHidden>
+            •
+          </Text>
           <Text style={styles.bulletText}>{item}</Text>
         </View>
       ))}
-    </>
+    </View>
   );
 }
 
@@ -146,52 +150,53 @@ export function AnalysisResult({ result }) {
         )}
       </View>
 
-      {/* 1. Scene Description */}
+      {/* 1. Scene */}
       <Section
-        label="Scene Description"
-        accessibilityLabel={`Scene description: ${scene}`}
+        label="Scene"
+        accessibilityLabel={`Scene: ${scene || 'No description available'}`}
       >
-        <Text style={styles.sceneText}>{scene || 'No scene description available.'}</Text>
+        <Text style={styles.bodyText}>
+          {scene || 'No scene description available.'}
+        </Text>
       </Section>
 
       {/* 2. Detected Objects */}
       <Section
         label="Detected Objects"
         accessibilityLabel={
-          objects.length
+          objects?.length
             ? `Detected objects: ${objects.join(', ')}`
-            : 'Detected objects: none identified'
+            : 'No objects detected'
         }
       >
-        <BulletList items={objects} emptyText="No distinct objects identified." />
+        <BulletList items={objects} emptyText="No objects detected." />
       </Section>
 
-      {/* 3. Signs & Readable Text */}
+      {/* 3. Signs & Text (OCR Focus) */}
       <Section
-        label="Signs & Readable Text"
+        label="Signs & Text"
         accessibilityLabel={
           hasRecognizedText
-            ? `Recognized text: ${signsAndText.join(', ')}`
-            : 'Signs and text: none detected'
+            ? `Signs and text: ${signsAndText.join(', ')}`
+            : 'No text or signs detected'
         }
       >
         {hasRecognizedText ? (
           <View style={styles.textContainer}>
-            {signsAndText.map((item, idx) => (
-              <View key={idx} style={styles.textItem}>
+            {signsAndText.map((sign, index) => (
+              <View key={index} style={styles.textItem}>
                 <Text style={styles.quoteMark} accessibilityElementsHidden>“</Text>
-                <Text style={styles.verbatimText}>{item}</Text>
+                <Text style={styles.verbatimText}>{sign}</Text>
                 <Text style={styles.quoteMark} accessibilityElementsHidden>”</Text>
               </View>
             ))}
+            {Boolean(textNotes) && (
+              <Text style={styles.textNotes}>{textNotes}</Text>
+            )}
           </View>
         ) : (
-          <Text style={styles.emptyText}>No readable signs or printed text detected.</Text>
+          <Text style={styles.emptyText}>No text or signs detected in this image.</Text>
         )}
-
-        {textNotes ? (
-          <Text style={styles.textNotes}>{textNotes}</Text>
-        ) : null}
       </Section>
 
       {/* 4. Visible Obstacles / Hazards (when detected) */}
@@ -212,7 +217,7 @@ export function AnalysisResult({ result }) {
           label="Important Observations"
           accessibilityLabel={`Important observations: ${observations}`}
         >
-          <Text style={styles.observationsText}>{observations}</Text>
+          <Text style={styles.bodyText}>{observations}</Text>
         </Section>
       ) : null}
 
@@ -321,35 +326,34 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 1.3,
     color: colors.primary,
-    marginBottom: 7,
-    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
-  sceneText: {
-    fontSize: 16,
-    lineHeight: 24,
+  bodyText: {
+    fontSize: 15,
+    lineHeight: 23,
     color: colors.text,
-    fontWeight: '500',
   },
-  bullet: {
+  list: {
+    gap: 6,
+  },
+  bulletRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 4,
   },
-  bulletDot: {
+  bullet: {
     color: colors.primary,
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 22,
     marginRight: 8,
-    width: 12,
   },
   bulletText: {
     flex: 1,
     fontSize: 15,
-    lineHeight: 23,
+    lineHeight: 22,
     color: colors.text,
   },
   textContainer: {
@@ -395,13 +399,7 @@ const styles = StyleSheet.create({
     color: colors.secondaryText,
     fontStyle: 'italic',
   },
-  observationsText: {
-    fontSize: 15,
-    lineHeight: 24,
-    color: colors.text,
-  },
   disclaimer: {
-    marginTop: 8,
     fontSize: 11,
     lineHeight: 17,
     color: colors.secondaryText,

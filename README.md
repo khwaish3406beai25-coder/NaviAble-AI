@@ -7,6 +7,7 @@ AI-powered visual assistance application designed to help visually impaired user
 - **Live Camera Capture:** Open the camera to aim at objects, signboards, or surroundings. Includes an accessible viewfinder, front/rear camera switching, photo capture, review, retake, and confirmation.
 - **Gallery Upload:** Select images from the device photo library.
 - **Image Preview & Management:** Preview selected or captured images on the dashboard, change the image, retake it, or remove it.
+- **YOLOv8 Object Detection:** Dedicated endpoint powered by a lightweight FastAPI backend (`/detect`) that identifies objects in real time with bounding counts and confidence scores.
 - **Gemini Vision Analysis:**
   - **Scene & Object Analysis:** Structured identification of scene setting, clearly visible objects, and key observations for visually impaired navigation.
   - **Prioritized OCR & Signboard Reading:** Dedicated mode that extracts and presents readable signs, labels, and text verbatim, communicating uncertainty when text is blurred or obscured.
@@ -55,6 +56,18 @@ npx expo start --web
 ```
 > Note: In web browsers, camera and microphone access require HTTPS or localhost as per standard browser security policies. Web Speech Recognition is natively supported in Chrome and Edge.
 
+## Backend (FastAPI / YOLOv8)
+
+To run the local YOLO object detection backend:
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+Set `EXPO_PUBLIC_YOLO_URL=http://<your-local-ip>:8000/detect` in `.env`.
+
 ## Gemini API Setup (for Image Analysis)
 
 1. Get a free API key at <https://aistudio.google.com/app/apikey>.
@@ -77,7 +90,8 @@ The app uses `app.json` to manage permissions:
 
 ## Structure
 
-- `App.js` — Main dashboard, image preview state, camera/gallery actions, analysis triggers, and voice activation controls.
+- `App.js` — Main dashboard, image preview state, camera/gallery actions, analysis triggers, YOLO detection, and voice activation controls.
+- `backend/` — FastAPI service hosting YOLOv8n object detection.
 - `src/navigation/NavigationShell.js` — Accessible Home, Settings, and Help navigation shell.
 - `src/components/ActionButton.js` — Reusable accessible navigation button.
 - `src/components/AppHeader.js` — Shared page header for secondary screens.
@@ -85,6 +99,7 @@ The app uses `app.json` to manage permissions:
 - `src/screens/HelpScreen.js` — Getting started guide and feature roadmap.
 - `src/services/speechService.js` — Text-to-Speech service using `expo-speech`, formatted speech builders, overlap prevention, and hooks.
 - `src/services/gemini.js` — Gemini vision AI integration supporting general scene analysis and prioritized OCR text-reading modes.
+- `src/services/yolo.js` — YOLO object detection client calling backend endpoint.
 - `src/components/AnalysisResult.js` — Accessible analysis display with TTS playback controls ("Listen to Result", "Read Text", "Stop Speaking").
 - `src/components/VoiceActivationCard.js` — Voice assistant card with action choices ("Open Camera", "Gallery", "Analyse Image", "Listen to Analysis", "Read Text").
 - `src/services/voiceActivation.js` — Wake-word detection lifecycle manager, permissions, and app backgrounding handler.

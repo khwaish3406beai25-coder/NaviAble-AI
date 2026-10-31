@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -23,21 +23,35 @@ import { AnalysisResult } from './src/components/AnalysisResult';
 
 import { analyzeImageWithGemini } from './src/services/gemini';
 import { speechManager } from './src/services/speechService';
+import { detectObjectsWithYolo } from './src/services/yolo';
 
 export default function App() {
   const [image, setImage] = useState(null);
   const [busy, setBusy] = useState(false);
   const [cameraVisible, setCameraVisible] = useState(false);
 
+  // Gemini analysis state
   const [analysis, setAnalysis] = useState(null);
   const [analysing, setAnalysing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
 
+  // YOLO detection state
+  const [yoloResult, setYoloResult] = useState(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectError, setDetectError] = useState(null);
+
   const scrollRef = useRef(null);
+
+  // Cleanup speech on unmount
+  useEffect(() => {
+    return () => {
+      speechManager.stop();
+    };
+  }, []);
 
   // Open camera
   const openCamera = () => {
-    if (busy || analysing) return;
+    if (busy || analysing || detecting) return;
 
     speechManager.stop();
     setCameraVisible(true);
@@ -50,6 +64,8 @@ export default function App() {
     setImage(capturedImage);
     setAnalysis(null);
     setAnalysisError(null);
+    setYoloResult(null);
+    setDetectError(null);
     setCameraVisible(false);
 
     AccessibilityInfo.announceForAccessibility(
@@ -59,7 +75,7 @@ export default function App() {
 
   // Select an image from the gallery
   const chooseImage = async () => {
-    if (busy || analysing) return;
+    if (busy || analysing || detecting) return;
 
     speechManager.stop();
     setBusy(true);
@@ -88,6 +104,8 @@ export default function App() {
         setImage(result.assets[0]);
         setAnalysis(null);
         setAnalysisError(null);
+        setYoloResult(null);
+        setDetectError(null);
 
         AccessibilityInfo.announceForAccessibility(
           'Image selected from gallery.'
@@ -139,6 +157,34 @@ export default function App() {
     }
   };
 
+  // Detect objects with YOLOv8 backend
+  const detectObjects = async () => {
+    if (!image?.uri || detecting || busy) return;
+
+    speechManager.stop();
+    setDetecting(true);
+    setYoloResult(null);
+    setDetectError(null);
+
+    try {
+      const result = await detectObjectsWithYolo(image);
+      setYoloResult(result);
+
+      AccessibilityInfo.announceForAccessibility(
+        `Object detection completed. ${result.summary}`
+      );
+
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 200);
+    } catch (err) {
+      console.error('YOLO detection error:', err);
+      setDetectError(err.message ?? 'Object detection failed. Please try again.');
+    } finally {
+      setDetecting(false);
+    }
+  };
+
   // Remove the selected image
   const handleRemoveImage = () => {
     speechManager.stop();
@@ -146,6 +192,8 @@ export default function App() {
     setImage(null);
     setAnalysis(null);
     setAnalysisError(null);
+    setYoloResult(null);
+    setDetectError(null);
 
     AccessibilityInfo.announceForAccessibility(
       'Selected image removed.'
@@ -158,7 +206,6 @@ export default function App() {
         barStyle="dark-content"
         backgroundColor={colors.background}
       />
-
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={styles.content}
@@ -171,131 +218,117 @@ export default function App() {
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           >
-            <Text style={styles.brandMarkText}>◉</Text>
+            <View style={styles.brandIcon}>
+              <Text style={styles.brandSymbol}>◎</Text>
+            </View>
+            <View>
+              <Text style={styles.brandName}>NaviAble</Text>
+              <Text style={styles.brandSubtitle}>
+                Your AI-powered visual companion.
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.brandCopy}>
-            <Text style={styles.brandName}>NaviAble AI</Text>
-
-            <Text style={styles.brandSubtitle}>
-              Your AI-powered visual companion.
-            </Text>
-          </View>
-        </View>
-
-        {/* Welcome Section */}
-        <View style={styles.welcome}>
-          <Text style={styles.eyebrow}>
-            A LITTLE MORE CLARITY, EVERY DAY
-          </Text>
-
-          <Text style={styles.title}>
-            See the world{'\n'}differently.
-          </Text>
-
+          <Text style={styles.eyebrow}>A LITTLE MORE CLARITY, EVERY DAY</Text>
+          <Text style={styles.title}>See the world{'\n'}differently.</Text>
           <Text style={styles.intro}>
-            An intelligent companion to help you understand
-            the world around you.
+            An intelligent companion designed to help you navigate,
+            explore, and understand your surroundings with confidence.
           </Text>
         </View>
 
-        {/* Image Selection and Preview */}
+        {/* Upload / Capture Card */}
         <View style={styles.uploadCard}>
           <View
             style={styles.uploadIcon}
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           >
-            <Text style={styles.uploadIconText}>
-              {image ? '◉' : '▧'}
-            </Text>
+            <Text style={styles.uploadIconText}>✦</Text>
           </View>
-
-          <Text style={styles.cardTitle}>
-            {image ? 'Your Image' : 'Select or Capture Image'}
-          </Text>
-
+          <Text style={styles.cardTitle}>Explore an image</Text>
           <Text style={styles.cardBody}>
-            {image
-              ? 'Your image is ready for visual assistance.'
-              : 'Choose an image from your gallery or open the camera to capture your surroundings.'}
+            Point your camera or choose a photo to hear what is around you.
           </Text>
 
           {image ? (
             <>
-              {/* Image Preview */}
               <Image
                 source={{ uri: image.uri }}
                 style={styles.preview}
                 resizeMode="cover"
+                accessible
+                accessibilityRole="image"
                 accessibilityLabel="Selected image preview"
               />
 
-              {/* Image Actions */}
               <View style={styles.imageActions}>
                 <Pressable
                   onPress={openCamera}
-                  disabled={busy || analysing}
+                  disabled={busy || analysing || detecting}
                   accessibilityRole="button"
-                  accessibilityLabel="Take a new photo"
+                  accessibilityLabel="Retake with camera"
+                  accessibilityHint="Opens the camera to capture a new photo"
                   style={({ pressed }) => [
                     styles.actionButton,
                     styles.cameraAction,
+                    (busy || analysing || detecting) && styles.disabled,
                     pressed && styles.pressed,
-                    (busy || analysing) && styles.disabled,
                   ]}
                 >
-                  <Text style={styles.cameraActionText}>
-                    Open Camera
-                  </Text>
+                  <Text style={styles.cameraActionText}>Retake Photo</Text>
                 </Pressable>
 
                 <Pressable
                   onPress={chooseImage}
-                  disabled={busy || analysing}
+                  disabled={busy || analysing || detecting}
                   accessibilityRole="button"
                   accessibilityLabel="Change image from gallery"
+                  accessibilityHint="Opens your photo library to select a different image"
                   style={({ pressed }) => [
                     styles.actionButton,
                     styles.galleryAction,
+                    (busy || analysing || detecting) && styles.disabled,
                     pressed && styles.pressed,
-                    (busy || analysing) && styles.disabled,
                   ]}
                 >
-                  <Text style={styles.galleryActionText}>
-                    Gallery
-                  </Text>
+                  <Text style={styles.galleryActionText}>Change Image</Text>
                 </Pressable>
 
                 <Pressable
                   onPress={handleRemoveImage}
-                  disabled={analysing}
+                  disabled={busy || analysing || detecting}
                   accessibilityRole="button"
-                  accessibilityLabel="Remove selected image"
+                  accessibilityLabel="Remove image"
+                  accessibilityHint="Clears the current photo selection"
                   style={({ pressed }) => [
                     styles.removeButton,
+                    (busy || analysing || detecting) && styles.disabled,
                     pressed && styles.pressed,
-                    analysing && styles.disabled,
                   ]}
                 >
-                  <Text style={styles.removeButtonText}>
-                    Remove
-                  </Text>
+                  <Text style={styles.removeButtonText}>Remove</Text>
                 </Pressable>
               </View>
 
-              {/* Analysis Buttons */}
+              {/* Analysis & Detection Action Buttons */}
               <View style={styles.analyseButtonsContainer}>
+                {/* 1. General Scene & Object Analysis */}
                 <Pressable
                   onPress={() => analyzeImage('general')}
-                  disabled={analysing || busy}
+                  disabled={busy || analysing || detecting}
                   accessibilityRole="button"
-                  accessibilityLabel="Analyse scene and objects"
+                  accessibilityLabel={
+                    analysing
+                      ? 'Analysing scene and objects, please wait'
+                      : 'Analyse scene and objects'
+                  }
+                  accessibilityHint="Sends image to Gemini for scene and object description"
                   style={({ pressed }) => [
                     styles.primaryButton,
                     styles.analyseButton,
+                    (busy || analysing || detecting) && styles.disabled,
                     pressed && styles.pressed,
-                    (analysing || busy) && styles.disabled,
                   ]}
                 >
                   {analysing ? (
@@ -303,133 +336,149 @@ export default function App() {
                       <ActivityIndicator
                         color={colors.white}
                         size="small"
+                        accessibilityElementsHidden
                       />
-
-                      <Text style={styles.loadingText}>
-                        Analysing image...
-                      </Text>
+                      <Text style={styles.loadingText}>Analysing Scene...</Text>
                     </>
                   ) : (
-                    <Text style={styles.primaryButtonText}>
-                      {analysis?.mode === 'general'
-                        ? 'Analyse Scene Again'
-                        : 'Analyse Scene & Objects'}
-                    </Text>
-                  )}
-
-                  {!analysing && (
-                    <Text
-                      style={styles.buttonArrow}
-                      accessibilityElementsHidden
-                    >
-                      ›
-                    </Text>
+                    <>
+                      <Text style={styles.buttonCameraIcon}>◎</Text>
+                      <Text style={styles.primaryButtonText}>
+                        Analyse Scene & Objects
+                      </Text>
+                      <Text style={styles.buttonArrow}>→</Text>
+                    </>
                   )}
                 </Pressable>
 
+                {/* 2. OCR / Signboard Reading */}
                 <Pressable
                   onPress={() => analyzeImage('ocr')}
-                  disabled={analysing || busy}
+                  disabled={busy || analysing || detecting}
                   accessibilityRole="button"
-                  accessibilityLabel="Read signs and text"
+                  accessibilityLabel={
+                    analysing
+                      ? 'Reading signs and text, please wait'
+                      : 'Read signs and text'
+                  }
+                  accessibilityHint="Prioritizes reading visible text, labels, and signboards verbatim"
                   style={({ pressed }) => [
                     styles.ocrButton,
+                    (busy || analysing || detecting) && styles.disabled,
                     pressed && styles.pressed,
-                    (analysing || busy) && styles.disabled,
                   ]}
                 >
-                  <Text
-                    style={styles.ocrButtonIcon}
-                    accessibilityElementsHidden
-                  >
-                    Aa
-                  </Text>
+                  <Text style={styles.ocrButtonIcon}>Aa</Text>
+                  <Text style={styles.ocrButtonText}>Read Signs & Text</Text>
+                </Pressable>
 
-                  <Text style={styles.ocrButtonText}>
-                    {analysis?.mode === 'ocr'
-                      ? 'Read Signs & Text Again'
-                      : 'Read Signs & Text'}
-                  </Text>
+                {/* 3. YOLO Object Detection */}
+                <Pressable
+                  onPress={detectObjects}
+                  disabled={busy || analysing || detecting}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    detecting
+                      ? 'Detecting objects with YOLO, please wait'
+                      : 'Detect objects in image'
+                  }
+                  accessibilityHint="Sends the image to the YOLO model to identify and locate objects"
+                  style={({ pressed }) => [
+                    styles.detectButton,
+                    (busy || analysing || detecting) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {detecting ? (
+                    <View style={styles.detectButtonInner}>
+                      <ActivityIndicator
+                        color={colors.primary}
+                        size="small"
+                        accessibilityElementsHidden
+                      />
+                      <Text style={styles.detectButtonText}>Detecting Objects...</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.detectButtonInner}>
+                      <Text style={styles.ocrButtonIcon}>⌕</Text>
+                      <Text style={styles.detectButtonText}>Detect Objects (YOLO)</Text>
+                    </View>
+                  )}
                 </Pressable>
               </View>
 
-              {/* Analysis Status */}
+              {/* Status Badges */}
               {analysis && (
                 <View
                   style={styles.resultsBadge}
+                  accessible
                   accessibilityRole="text"
-                  accessibilityLabel="Analysis completed successfully"
+                  accessibilityLabel="Analysis ready. Results are displayed below."
                 >
                   <Text style={styles.resultsBadgeText}>
-                    Analysis complete — results below
+                    ✓ Analysis Ready (See Below)
                   </Text>
                 </View>
               )}
 
-              {/* Analysis Error */}
+              {/* Gemini Error Message */}
               {analysisError && (
                 <View
                   style={styles.errorBox}
+                  accessible
                   accessibilityRole="alert"
+                  accessibilityLabel={`Analysis error: ${analysisError}`}
                 >
-                  <Text style={styles.errorText}>
-                    {analysisError}
-                  </Text>
+                  <Text style={styles.errorText}>{analysisError}</Text>
+                </View>
+              )}
+
+              {/* YOLO Error Message */}
+              {detectError && (
+                <View
+                  style={styles.errorBox}
+                  accessible
+                  accessibilityRole="alert"
+                  accessibilityLabel={`Detection error: ${detectError}`}
+                >
+                  <Text style={styles.errorText}>{detectError}</Text>
                 </View>
               )}
             </>
           ) : (
-            /* Initial Camera and Gallery Buttons */
             <View style={styles.buttonStack}>
+              {/* Camera Button */}
               <Pressable
                 onPress={openCamera}
                 disabled={busy}
                 accessibilityRole="button"
-                accessibilityLabel="Open Camera"
+                accessibilityLabel="Open camera"
+                accessibilityHint="Opens the camera to take a photo for visual assistance"
                 style={({ pressed }) => [
                   styles.primaryButton,
-                  pressed && styles.pressed,
                   busy && styles.disabled,
+                  pressed && styles.pressed,
                 ]}
               >
-                <Text style={styles.buttonCameraIcon}>
-                  Camera
-                </Text>
-
-                <Text style={styles.primaryButtonText}>
-                  Open Camera
-                </Text>
-
-                <Text
-                  style={styles.buttonArrow}
-                  accessibilityElementsHidden
-                >
-                  ›
-                </Text>
+                <Text style={styles.buttonCameraIcon}>📷</Text>
+                <Text style={styles.primaryButtonText}>Open Camera</Text>
+                <Text style={styles.buttonArrow}>→</Text>
               </Pressable>
 
+              {/* Gallery Button */}
               <Pressable
                 onPress={chooseImage}
                 disabled={busy}
                 accessibilityRole="button"
-                accessibilityLabel="Upload image from gallery"
+                accessibilityLabel={busy ? 'Opening gallery, please wait' : 'Upload Image'}
+                accessibilityHint="Opens your photo library to choose an image for visual assistance"
                 style={({ pressed }) => [
                   styles.outlineButton,
-                  pressed && styles.pressed,
                   busy && styles.disabled,
+                  pressed && styles.pressed,
                 ]}
               >
-                {busy ? (
-                  <ActivityIndicator
-                    color={colors.primary}
-                    size="small"
-                  />
-                ) : (
-                  <Text style={styles.outlineButtonIcon}>
-                    ▧
-                  </Text>
-                )}
-
+                <Text style={styles.outlineButtonIcon}>📁</Text>
                 <Text style={styles.outlineButtonText}>
                   {busy ? 'Opening gallery...' : 'Upload Image'}
                 </Text>
@@ -442,51 +491,68 @@ export default function App() {
           </Text>
         </View>
 
-        {/* Analysis Results */}
+        {/* Gemini Analysis Results */}
         {analysis && (
           <View style={styles.analysisSection}>
             <Text style={styles.sectionEyebrow}>
               YOUR RESULTS
             </Text>
-
             <Text style={styles.sectionTitle}>
               Understanding your surroundings
             </Text>
-
             <AnalysisResult result={analysis} />
           </View>
         )}
 
-        {/* Feature Section */}
+        {/* YOLO Detection Results */}
+        {yoloResult && (
+          <View style={styles.yoloCard}>
+            <View style={styles.yoloHeader}>
+              <Text style={styles.yoloHeaderIcon} accessibilityElementsHidden>⌕</Text>
+              <Text style={styles.yoloHeaderTitle}>Object Detection</Text>
+              <View style={styles.yoloBadge}>
+                <Text style={styles.yoloBadgeText}>{yoloResult.count} found</Text>
+              </View>
+            </View>
+            <Text
+              style={styles.yoloSummary}
+              accessible
+              accessibilityLabel={yoloResult.summary}
+            >
+              {yoloResult.summary}
+            </Text>
+            {yoloResult.detections?.length > 0 && (
+              <View style={styles.yoloList}>
+                {yoloResult.detections.map((d, idx) => (
+                  <View key={idx} style={styles.yoloItem}>
+                    <Text style={styles.yoloLabel}>{d.label}</Text>
+                    <Text style={styles.yoloConf}>{Math.round(d.confidence * 100)}%</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <Text style={styles.yoloDisclaimer}>
+              Powered by YOLOv8n · Results may vary by image quality.
+            </Text>
+          </View>
+        )}
+
+        {/* Voice Assistance & Roadmap Section */}
         <View style={styles.sectionHeading}>
           <View>
             <Text style={styles.sectionEyebrow}>
-              WHAT’S AHEAD
+              VOICE & FEATURES
             </Text>
-
             <Text style={styles.sectionTitle}>
               More ways to explore
             </Text>
           </View>
-
           <View style={styles.phasePill}>
-            <Text style={styles.phaseText}>PHASE 1</Text>
+            <Text style={styles.phaseText}>LIVE</Text>
           </View>
         </View>
 
         <View style={styles.features}>
-          <FeatureCard
-            icon="⌕"
-            title="Object Detection"
-            description="Identify objects around you."
-          />
-
-          <FeatureCard
-            icon="Aa"
-            title="Read Text"
-            description="Extract text from images and signboards."
-          />
-
           <VoiceActivationCard
             hasImage={Boolean(image)}
             hasAnalysis={Boolean(analysis)}
@@ -503,24 +569,33 @@ export default function App() {
               speechManager.speakTextOnly(analysis)
             }
           />
+
+          <FeatureCard
+            icon="⌕"
+            title="Real-Time Detection"
+            description="Identify objects, signs, and hazards in your environment."
+          />
+          <FeatureCard
+            icon="Aa"
+            title="Read Text"
+            description="Extract text from signboards, menus, and labels."
+          />
         </View>
 
         {/* Footer */}
         <View style={styles.footer}>
           <View style={styles.footerRule} />
-
           <Text style={styles.footerText}>
             Designed to make visual assistance more accessible.
           </Text>
         </View>
       </ScrollView>
 
-      {/* Camera Modal */}
+      {/* Accessible Camera Modal */}
       <CameraModal
         visible={cameraVisible}
         onClose={() => setCameraVisible(false)}
-        onCaptureConfirmed={handleCaptureConfirmed}
-        onChooseFromGallery={chooseImage}
+        onCapture={handleCaptureConfirmed}
       />
     </SafeAreaView>
   );
@@ -534,94 +609,87 @@ const styles = StyleSheet.create({
 
   content: {
     paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: 32,
-    maxWidth: 600,
-    width: '100%',
-    alignSelf: 'center',
+    paddingTop: 8,
+    paddingBottom: 40,
   },
 
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 35,
-  },
-
-  brandMark: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-
-  brandMarkText: {
-    color: colors.primary,
-    fontSize: 28,
-    fontWeight: '700',
-  },
-
-  brandCopy: {
-    flex: 1,
-  },
-
-  brandName: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '700',
-    color: colors.text,
-    letterSpacing: -0.3,
-  },
-
-  brandSubtitle: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.secondaryText,
-  },
-
-  welcome: {
+    marginTop: 10,
     marginBottom: 24,
   },
 
-  eyebrow: {
-    fontSize: 10,
-    lineHeight: 16,
-    letterSpacing: 1.4,
-    fontWeight: '700',
+  brandMark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 22,
+    gap: 12,
+  },
+
+  brandIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.accent,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  brandSymbol: {
+    fontSize: 22,
     color: colors.primary,
+    fontWeight: '700',
+  },
+
+  brandName: {
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+    color: colors.primary,
+  },
+
+  brandSubtitle: {
+    fontSize: 12,
+    color: colors.secondaryText,
+    marginTop: 1,
+  },
+
+  eyebrow: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 11,
+    letterSpacing: 1.4,
     marginBottom: 10,
   },
 
   title: {
-    fontSize: 36,
+    fontSize: 38,
     lineHeight: 42,
-    fontWeight: '700',
-    letterSpacing: -1.1,
+    letterSpacing: -0.9,
     color: colors.text,
+    fontWeight: '700',
+    marginBottom: 13,
   },
 
   intro: {
-    marginTop: 11,
-    maxWidth: 330,
+    color: colors.secondaryText,
     fontSize: 16,
     lineHeight: 24,
-    color: colors.secondaryText,
+    maxWidth: 340,
   },
 
   uploadCard: {
-    backgroundColor: colors.white,
-    borderRadius: 22,
+    borderRadius: 24,
+    padding: 22,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 22,
-    alignItems: 'flex-start',
+    backgroundColor: colors.white,
     shadowColor: '#24352D',
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 2,
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
 
   uploadIcon: {
@@ -659,7 +727,7 @@ const styles = StyleSheet.create({
 
   buttonStack: {
     width: '100%',
-    gap: 10,
+    gap: 12,
   },
 
   primaryButton: {
@@ -687,8 +755,8 @@ const styles = StyleSheet.create({
   },
 
   buttonCameraIcon: {
-    fontSize: 13,
-    marginRight: 8,
+    fontSize: 18,
+    marginRight: 10,
     color: colors.white,
     fontWeight: '700',
   },
@@ -843,6 +911,30 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
 
+  detectButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingHorizontal: 12,
+  },
+
+  detectButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  detectButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
   resultsBadge: {
     marginTop: 10,
     width: '100%',
@@ -924,6 +1016,100 @@ const styles = StyleSheet.create({
 
   features: {
     gap: 10,
+  },
+
+  yoloCard: {
+    marginTop: 18,
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 20,
+    shadowColor: '#24352D',
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+
+  yoloHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+
+  yoloHeaderIcon: {
+    color: colors.primary,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+
+  yoloHeaderTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.text,
+    letterSpacing: -0.3,
+    flex: 1,
+  },
+
+  yoloBadge: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+
+  yoloBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary,
+    letterSpacing: 0.4,
+  },
+
+  yoloSummary: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.text,
+    marginBottom: 14,
+  },
+
+  yoloList: {
+    gap: 6,
+    marginBottom: 14,
+  },
+
+  yoloItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+
+  yoloLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    textTransform: 'capitalize',
+  },
+
+  yoloConf: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
+  yoloDisclaimer: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: colors.secondaryText,
+    fontStyle: 'italic',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 12,
   },
 
   footer: {
