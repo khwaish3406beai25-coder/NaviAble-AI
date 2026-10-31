@@ -20,13 +20,22 @@
         {
           "cameraPermission": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance."
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow NaviAble AI to use the microphone for voice commands.",
+          "speechRecognitionPermission": "Allow NaviAble AI to use speech recognition for voice commands."
+        }
       ]
     ],
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance.",
-        "NSPhotoLibraryUsageDescription": "Allow NaviAble AI to access your photos so you can choose an image for visual assistance."
+        "NSPhotoLibraryUsageDescription": "Allow NaviAble AI to access your photos so you can choose an image for visual assistance.",
+        "NSMicrophoneUsageDescription": "Allow NaviAble AI to use the microphone for voice commands.",
+        "NSSpeechRecognitionUsageDescription": "Allow NaviAble AI to use speech recognition for voice commands."
       }
     },
     "android": {
@@ -37,8 +46,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "CAMERA"
-      ]
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.anonymous.naviableai"
     },
     "web": {
       "favicon": "./assets/favicon.png"

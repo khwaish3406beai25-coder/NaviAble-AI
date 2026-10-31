@@ -16,6 +16,7 @@ import { colors } from './src/styles/theme';
 import { AnalysisResult } from './src/components/AnalysisResult';
 import { CameraModal } from './src/components/CameraModal';
 import { VoiceAssistant, VOICE_ASSISTANT_STATES } from './src/components/VoiceAssistant';
+import { VoiceMicButton } from './src/components/VoiceMicButton';
 import { analyzeImageWithGemini } from './src/services/gemini';
 import { formatConciseAnalysis, speakText, stopSpeaking } from './src/services/textToSpeech';
 import { detectObjectsWithYolo } from './src/services/yolo';
@@ -39,6 +40,10 @@ export default function App() {
   const scrollRef = useRef(null);
   const speechRequestRef = useRef(0);
   const lastSpeechRef = useRef('');
+  // Ref passed to CameraModal so voice "take a picture" can trigger the shutter
+  const takePhotoRef = useRef(null);
+  // Track whether camera was opened by a voice command so we can auto-shoot
+  const voiceAutoShootRef = useRef(false);
 
   useEffect(() => () => {
     speechRequestRef.current += 1;
@@ -129,8 +134,22 @@ export default function App() {
     setCameraVisible(true);
   };
 
+  // Voice command: "take a picture"
+  // If camera is already open → fire the shutter immediately.
+  // If camera is closed → open it and set a flag to auto-shoot once ready.
+  const handleVoiceTakePicture = () => {
+    if (cameraVisible && takePhotoRef.current) {
+      takePhotoRef.current();
+    } else {
+      voiceAutoShootRef.current = true;
+      openCamera();
+    }
+  };
+
   const handleCaptureConfirmed = (capturedImage) => {
     cancelSpeech();
+    const wasVoiceShot = voiceAutoShootRef.current;
+    voiceAutoShootRef.current = false;
     setImage(capturedImage);
     setAnalysis(null);
     setAnalysisError(null);
@@ -141,6 +160,8 @@ export default function App() {
     setYoloResult(null);
     setDetectError(null);
     setCameraVisible(false);
+    // Auto-analyze confirmed photo immediately
+    setTimeout(() => analyzeImage(capturedImage), 300);
   };
 
   const handleCameraCaptureError = (message) => {
@@ -174,7 +195,8 @@ export default function App() {
         base64: true,
       });
       if (!result.canceled && result.assets?.[0]?.uri) {
-        setImage(result.assets[0]);
+        const pickedAsset = result.assets[0];
+        setImage(pickedAsset);
         // Clear previous analysis when a new image is picked.
         setAnalysis(null);
         setAnalysisError(null);
@@ -184,6 +206,8 @@ export default function App() {
         setVoiceStatus('');
         setYoloResult(null);
         setDetectError(null);
+        // Automatically start image analysis right away
+        setTimeout(() => analyzeImage(pickedAsset), 300);
       }
     } catch (error) {
       Alert.alert('Unable to open gallery', 'Please try again in a moment.');
@@ -192,8 +216,10 @@ export default function App() {
     }
   };
 
-  const analyzeImage = async () => {
-    if (!image?.uri || analysing) return;
+  const analyzeImage = async (imageOverride) => {
+    // If called directly from onPress event, imageOverride is a GestureResponderEvent
+    const img = (imageOverride && typeof imageOverride.uri === 'string') ? imageOverride : image;
+    if (!img?.uri || analysing) return;
     cancelSpeech();
     setAnalysing(true);
     setAnalysis(null);
@@ -203,7 +229,7 @@ export default function App() {
     setVoiceError('');
     setVoiceStatus('Analyzing the image.');
     try {
-      const result = await analyzeImageWithGemini(image);
+      const result = await analyzeImageWithGemini(img);
       setAnalysis(result);
       const conciseResponse = formatConciseAnalysis(result);
       setVoiceResponse(conciseResponse);
@@ -272,6 +298,15 @@ export default function App() {
           onStopSpeaking={handleStopSpeaking}
         />
 
+        {/* Voice Command Mic Button */}
+        <VoiceMicButton
+          onOpenCamera={openCamera}
+          onTakePicture={handleVoiceTakePicture}
+          onRepeat={repeatResponse}
+          onUploadImage={chooseImage}
+          disabled={analysing || detecting}
+        />
+
         {/* Image Selection / Preview Card */}
         <View style={styles.uploadCard}>
           <View style={styles.uploadIcon} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -313,7 +348,7 @@ export default function App() {
 
               {/* Analyse Image button */}
               <Pressable
-                onPress={analyzeImage}
+                onPress={() => analyzeImage()}
                 disabled={analysing}
                 accessibilityRole="button"
                 accessibilityLabel="Analyse image with AI"
@@ -464,10 +499,11 @@ export default function App() {
       {/* Accessible Camera Modal */}
       <CameraModal
         visible={cameraVisible}
-        onClose={() => setCameraVisible(false)}
+        onClose={() => { voiceAutoShootRef.current = false; setCameraVisible(false); }}
         onCaptureConfirmed={handleCaptureConfirmed}
         onCaptureError={handleCameraCaptureError}
         onChooseFromGallery={chooseImage}
+        takePhotoRef={takePhotoRef}
       />
     </SafeAreaView>
   );

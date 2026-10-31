@@ -21,7 +21,7 @@ import { colors } from '../styles/theme';
  * Allows users to point the camera at surroundings, take a photo,
  * review/retake it, and confirm the photo to return to the home screen.
  */
-export function CameraModal({ visible, onClose, onCaptureConfirmed, onCaptureError, onChooseFromGallery }) {
+export function CameraModal({ visible, onClose, onCaptureConfirmed, onCaptureError, onChooseFromGallery, takePhotoRef }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState('back');
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -105,6 +105,12 @@ export function CameraModal({ visible, onClose, onCaptureConfirmed, onCaptureErr
       setIsCapturing(false);
     }
   };
+
+  // Expose takePhoto imperatively so voice commands can trigger capture
+  useEffect(() => {
+    if (takePhotoRef) takePhotoRef.current = takePhoto;
+    return () => { if (takePhotoRef) takePhotoRef.current = null; };
+  });
 
   const handleRetake = () => {
     setCapturedPhoto(null);

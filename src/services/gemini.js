@@ -13,7 +13,11 @@
  */
 import * as ImageManipulator from 'expo-image-manipulator';
 
-const MODEL = 'gemini-3.5-flash';
+const CANDIDATE_MODELS = [
+  'gemini-3-flash-preview',
+  'gemini-3.5-flash',
+  'gemini-flash-latest',
+];
 const MAX_IMAGE_DIMENSION = 3072;
 const MAX_INLINE_IMAGE_BYTES = 18 * 1024 * 1024;
 
@@ -134,7 +138,6 @@ export async function analyzeImageWithGemini(imageInput) {
   }
 
   const { base64, mimeType } = await prepareImageForGemini(imageInput);
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
   const body = {
     contents: [
@@ -157,39 +160,55 @@ export async function analyzeImageWithGemini(imageInput) {
   };
 
   let response;
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new Error('Network error. Check your internet connection and try again.');
+  let lastErrorDetail = '';
+  let lastStatus = 500;
+
+  for (const model of CANDIDATE_MODELS) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        break;
+      }
+
+      lastStatus = response.status;
+      let rawError = '';
+      try {
+        const errJson = await response.json();
+        rawError = errJson?.error?.message || '';
+      } catch { }
+
+      lastErrorDetail = sanitizeMessage(rawError, apiKey) || response.statusText || 'No error details returned.';
+
+      if (response.status === 400 || response.status === 403) {
+        if (lastErrorDetail.toLowerCase().includes('api key') || lastErrorDetail.toLowerCase().includes('key not valid')) {
+          throw new Error(`Authentication error (HTTP ${response.status}): ${lastErrorDetail}. Check your key in .env and restart Expo.`);
+        }
+        throw new Error(`Gemini rejected the request (HTTP ${response.status}): ${lastErrorDetail}`);
+      }
+
+      // If 503 (high demand) or 429, try next model in CANDIDATE_MODELS
+      console.warn(`[Gemini] ${model} returned HTTP ${response.status}. Trying next model...`);
+    } catch (err) {
+      if (err.message?.includes('Authentication error') || err.message?.includes('Gemini rejected')) {
+        throw err;
+      }
+    }
   }
 
-  if (!response.ok) {
-    let rawError = '';
-    try {
-      const errJson = await response.json();
-      rawError = errJson?.error?.message || '';
-    } catch { }
-
-    const sanitizedError = sanitizeMessage(rawError, apiKey);
-    const errorDetail = sanitizedError || response.statusText || 'No error details returned.';
-
-    if (response.status === 429) {
-      throw new Error(`API quota exceeded (HTTP 429): ${errorDetail}`);
+  if (!response || !response.ok) {
+    if (lastStatus === 429) {
+      throw new Error(`API quota exceeded (HTTP 429): ${lastErrorDetail}`);
     }
-    if (response.status === 400 || response.status === 403) {
-      if (errorDetail.toLowerCase().includes('api key') || errorDetail.toLowerCase().includes('key not valid')) {
-        throw new Error(`Authentication error (HTTP ${response.status}): ${errorDetail}. Check your key in .env and restart Expo.`);
-      }
-      throw new Error(`Gemini rejected the request (HTTP ${response.status}): ${errorDetail}`);
-    }
-    throw new Error(`Analysis failed (HTTP ${response.status}): ${errorDetail}. Please try again.`);
+    throw new Error(`Analysis failed (HTTP ${lastStatus}): ${lastErrorDetail || 'Models currently busy'}. Please try again.`);
   }
 
   let json;
