@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -13,10 +14,17 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { colors } from './src/styles/theme';
 import { FeatureCard } from './src/components/FeatureCard';
+import { AnalysisResult } from './src/components/AnalysisResult';
+import { analyzeImageWithGemini } from './src/services/gemini';
 
 export default function App() {
   const [image, setImage] = useState(null);
   const [busy, setBusy] = useState(false);
+  // analysis: null | { scene, objects, signsAndText, observations }
+  const [analysis, setAnalysis] = useState(null);
+  const [analysing, setAnalysing] = useState(false);
+  const [analysisError, setAnalysisError] = useState(null);
+  const scrollRef = useRef(null);
 
   const chooseImage = async () => {
     if (busy) return;
@@ -35,9 +43,15 @@ export default function App() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
-        quality: 0.9,
+        quality: 0.8,
+        base64: true,
       });
-      if (!result.canceled && result.assets?.[0]?.uri) setImage(result.assets[0]);
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setImage(result.assets[0]);
+        // Clear previous analysis when a new image is picked.
+        setAnalysis(null);
+        setAnalysisError(null);
+      }
     } catch (error) {
       Alert.alert('Unable to open gallery', 'Please try again in a moment.');
     } finally {
@@ -45,10 +59,28 @@ export default function App() {
     }
   };
 
+  const analyzeImage = async () => {
+    if (!image?.uri || analysing) return;
+    setAnalysing(true);
+    setAnalysis(null);
+    setAnalysisError(null);
+    try {
+      const result = await analyzeImageWithGemini(image);
+      setAnalysis(result);
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ y: 380, animated: true });
+      }, 150);
+    } catch (err) {
+      setAnalysisError(err.message ?? 'An unexpected error occurred. Please try again.');
+    } finally {
+      setAnalysing(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View style={styles.brandMark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <Text style={styles.brandMarkText}>◉</Text>
@@ -61,7 +93,7 @@ export default function App() {
 
         <View style={styles.welcome}>
           <Text style={styles.eyebrow}>A LITTLE MORE CLARITY, EVERY DAY</Text>
-          <Text style={styles.title}>See the world{ '\n' }differently.</Text>
+          <Text style={styles.title}>See the world{'\n'}differently.</Text>
           <Text style={styles.intro}>An intelligent companion to help you understand the world around you.</Text>
         </View>
 
@@ -80,10 +112,55 @@ export default function App() {
                 <Pressable onPress={chooseImage} disabled={busy} accessibilityRole="button" accessibilityLabel="Change selected image" style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
                   <Text style={styles.secondaryButtonText}>Change Image</Text>
                 </Pressable>
-                <Pressable onPress={() => setImage(null)} accessibilityRole="button" accessibilityLabel="Remove selected image" style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}>
+                <Pressable onPress={() => { setImage(null); setAnalysis(null); setAnalysisError(null); }} accessibilityRole="button" accessibilityLabel="Remove selected image" style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}>
                   <Text style={styles.removeButtonText}>Remove</Text>
                 </Pressable>
               </View>
+
+              {/* Analyse Image button */}
+              <Pressable
+                onPress={analyzeImage}
+                disabled={analysing}
+                accessibilityRole="button"
+                accessibilityLabel="Analyse image with AI"
+                accessibilityHint="Sends the selected image to Gemini for object and scene analysis"
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  styles.analyseButton,
+                  pressed && styles.pressed,
+                  analysing && styles.disabled,
+                ]}
+              >
+                {analysing ? (
+                  <ActivityIndicator color={colors.white} size="small" accessibilityLabel="Analysing image, please wait" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>
+                    {analysis ? 'Analyse Again' : 'Analyse Image'}
+                  </Text>
+                )}
+                {!analysing && (
+                  <Text style={styles.buttonArrow} accessibilityElementsHidden>›</Text>
+                )}
+              </Pressable>
+
+              {/* Analysis success badge */}
+              {analysis ? (
+                <Pressable
+                  onPress={() => scrollRef.current?.scrollTo({ y: 380, animated: true })}
+                  accessibilityRole="button"
+                  accessibilityLabel="Scroll down to view analysis results"
+                  style={({ pressed }) => [styles.resultsBadge, pressed && styles.pressed]}
+                >
+                  <Text style={styles.resultsBadgeText}>✓ Analysis complete — View results below ↓</Text>
+                </Pressable>
+              ) : null}
+
+              {/* Analysis error */}
+              {analysisError ? (
+                <View style={styles.errorBox} accessible accessibilityRole="alert" accessibilityLabel={`Error: ${analysisError}`}>
+                  <Text style={styles.errorText}>{analysisError}</Text>
+                </View>
+              ) : null}
             </>
           ) : (
             <Pressable onPress={chooseImage} disabled={busy} accessibilityRole="button" accessibilityLabel="Choose an image from your photo gallery" style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}>
@@ -93,6 +170,9 @@ export default function App() {
           )}
           <Text style={styles.privacyNote}>Your photos stay on your device.</Text>
         </View>
+
+        {/* Analysis results rendered outside the upload card */}
+        {analysis ? <AnalysisResult result={analysis} /> : null}
 
         <View style={styles.sectionHeading}>
           <View>
@@ -146,6 +226,11 @@ const styles = StyleSheet.create({
   secondaryButtonText: { fontSize: 15, fontWeight: '700', color: colors.deepLavender },
   removeButton: { minHeight: 48, minWidth: 82, paddingHorizontal: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8F5FA' },
   removeButtonText: { fontSize: 15, fontWeight: '600', color: colors.secondaryText },
+  analyseButton: { marginTop: 12, width: '100%' },
+  resultsBadge: { marginTop: 10, width: '100%', backgroundColor: '#EDF7EE', borderRadius: 12, borderWidth: 1, borderColor: '#C8E6C9', paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+  resultsBadgeText: { fontSize: 13, fontWeight: '700', color: '#2E7D32' },
+  errorBox: { marginTop: 10, width: '100%', backgroundColor: '#FFF0F0', borderRadius: 12, borderWidth: 1, borderColor: '#F5C6C6', padding: 12 },
+  errorText: { fontSize: 14, lineHeight: 20, color: '#C0392B' },
   sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 34, marginBottom: 14 },
   sectionEyebrow: { color: colors.primary, fontWeight: '700', fontSize: 10, letterSpacing: 1.3, lineHeight: 16 },
   sectionTitle: { color: colors.text, fontSize: 21, lineHeight: 28, fontWeight: '700', letterSpacing: -0.4, marginTop: 2 },
