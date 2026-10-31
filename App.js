@@ -15,17 +15,29 @@ import * as ImagePicker from 'expo-image-picker';
 import { colors } from './src/styles/theme';
 import { FeatureCard } from './src/components/FeatureCard';
 import { AnalysisResult } from './src/components/AnalysisResult';
+import { CameraModal } from './src/components/CameraModal';
 import { analyzeImageWithGemini } from './src/services/gemini';
 
 export default function App() {
   const [image, setImage] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [cameraVisible, setCameraVisible] = useState(false);
   // analysis: null | { scene, objects, signsAndText, observations }
   const [analysis, setAnalysis] = useState(null);
   const [analysing, setAnalysing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
   const scrollRef = useRef(null);
 
+  const openCamera = () => {
+    setCameraVisible(true);
+  };
+
+  const handleCaptureConfirmed = (capturedImage) => {
+    setImage(capturedImage);
+    setAnalysis(null);
+    setAnalysisError(null);
+    setCameraVisible(false);
+  };
   // Gallery upload flow
   const chooseImage = async () => {
     if (busy) return;
@@ -274,6 +286,14 @@ const styles = StyleSheet.create({
   primaryButton: { height: 54, borderRadius: 15, paddingHorizontal: 18, width: '100%', backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
   primaryButtonText: { color: colors.white, fontWeight: '700', fontSize: 16 },
   buttonArrow: { position: 'absolute', right: 17, color: colors.white, fontSize: 25, lineHeight: 29 },
+  buttonStack: { width: '100%', gap: 12 },
+  buttonCameraIcon: { fontSize: 20, marginRight: 10 },
+  outlineButton: { height: 54, borderRadius: 15, paddingHorizontal: 18, width: '100%', backgroundColor: 'transparent', borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
+  outlineButtonIcon: { fontSize: 18, marginRight: 10, color: colors.primary },
+  outlineButtonText: { color: colors.primary, fontWeight: '700', fontSize: 16 },
+  actionButton: { flex: 1, minHeight: 48, paddingHorizontal: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  cameraAction: { backgroundColor: colors.softLavender, borderWidth: 1, borderColor: colors.primary },
+  cameraActionText: { fontSize: 14, fontWeight: '700', color: colors.primary },
   pressed: { opacity: 0.82 },
   disabled: { opacity: 0.7 },
   privacyNote: { alignSelf: 'center', color: colors.secondaryText, fontSize: 12, marginTop: 13 },
