@@ -17,14 +17,16 @@ const MODEL = 'gemini-3.5-flash';
 const MAX_IMAGE_DIMENSION = 3072;
 const MAX_INLINE_IMAGE_BYTES = 18 * 1024 * 1024;
 
-const PROMPT = `You are an accessibility assistant for visually impaired users. Carefully examine this image and provide a structured analysis. Be factual and only describe what is clearly visible. Do not guess or invent details.
+const PROMPT = `You are an accessibility assistant for a person who is blind or has low vision. Give a brief, useful account of what matters in this image. Use simple everyday English. Report only details that are clearly visible; never guess or present uncertainty as fact.
 
-Respond in the following JSON format only, with no markdown fences or extra text:
+Keep the spoken response to about 30-40 words and roughly 10-15 seconds. Start with one short sentence summarizing the scene. Prioritize nearby safety issues, especially clearly visible obstacles, stairs, vehicles, or other hazards; do not omit an important warning to meet the word target. Mention at most 3 important objects, using their position in the scene when clear. Include readable text only when it matters for navigation or safety, and at most 2 short items. Avoid decorative details and unnecessary descriptions of colour, texture, shape, or background. Give up to 5 short, important observations; include fewer when fewer useful facts are clearly visible.
+
+Respond in the following JSON format only, with no markdown fences or extra text. Keep the field names and types unchanged:
 {
-  "scene": "A single concise sentence describing the overall scene or setting.",
-  "objects": ["List each clearly visible object as a short phrase."],
-  "signsAndText": ["List each clearly readable sign or text as a short phrase. If none, use an empty array."],
-  "observations": "2-3 sentences describing what a visually impaired person most needs to know about this scene to navigate or understand their surroundings safely. Do not claim to detect hazards unless clearly visible."
+  "scene": "One short sentence summarizing the scene.",
+  "objects": ["Up to 3 important visible objects, with position when clear; use an empty array if none matter."],
+  "signsAndText": ["Up to 2 readable text items relevant to navigation or safety; use an empty array if none matter."],
+  "observations": "Up to 5 short, useful facts, with clearly visible safety concerns first. Use simple words and do not repeat details unnecessarily."
 }`;
 
 /**

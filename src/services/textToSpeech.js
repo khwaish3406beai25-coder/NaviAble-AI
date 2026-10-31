@@ -1,29 +1,38 @@
 import * as Speech from 'expo-speech';
 
-const MAX_SPOKEN_CHARACTERS = 600;
+const TARGET_MAX_WORDS = 40;
 
 /**
- * Creates a short spoken version of Gemini's structured image analysis.
- * The complete response remains available in the UI for screen readers.
+ * Creates the shared concise response shown in VoiceAssistant and spoken by
+ * TTS. The full structured analysis remains available in AnalysisResult.
  */
-export function createSpokenAnalysis(result) {
-  const parts = [result?.scene];
-  const objects = Array.isArray(result?.objects) ? result.objects.filter(Boolean).slice(0, 3) : [];
-  const signs = Array.isArray(result?.signsAndText) ? result.signsAndText.filter(Boolean).slice(0, 2) : [];
+export function formatConciseAnalysis(result) {
+  const scene = typeof result?.scene === 'string' ? result.scene.trim() : '';
+  const observations = typeof result?.observations === 'string' ? result.observations.trim() : '';
+  const objects = Array.isArray(result?.objects)
+    ? result.objects.filter((item) => typeof item === 'string' && item.trim()).slice(0, 3)
+    : [];
+  const signs = Array.isArray(result?.signsAndText)
+    ? result.signsAndText.filter((item) => typeof item === 'string' && item.trim()).slice(0, 2)
+    : [];
 
-  if (objects.length) parts.push(`Visible objects include ${objects.join(', ')}.`);
-  if (signs.length) parts.push(`Readable text includes ${signs.join(', ')}.`);
-  parts.push(result?.observations);
-
-  const response = parts
+  const core = [scene, observations]
     .filter((part) => typeof part === 'string' && part.trim())
     .map((part) => part.trim())
-    .join(' ');
+  let optional = [];
+  const countWords = (parts) => parts.join(' ').trim().split(/\s+/).filter(Boolean).length;
 
-  if (response.length <= MAX_SPOKEN_CHARACTERS) return response;
-  const truncated = response.slice(0, MAX_SPOKEN_CHARACTERS);
-  const lastSpace = truncated.lastIndexOf(' ');
-  return `${truncated.slice(0, lastSpace > 0 ? lastSpace : MAX_SPOKEN_CHARACTERS).replace(/[,.!?;:]?$/, '')}.`;
+  // Preserve the scene and safety observations first. Add object and text
+  // details only when they fit the concise speaking target.
+  const details = [
+    ...(objects.length ? [`Important objects: ${objects.join(', ')}.`] : []),
+    ...(signs.length ? [`Relevant text: ${signs.join(', ')}.`] : []),
+  ];
+  for (const detail of details) {
+    if (countWords([...core, ...optional, detail]) <= TARGET_MAX_WORDS) optional.push(detail);
+  }
+
+  return [...core, ...optional].join(' ');
 }
 
 /** Speak non-empty text and forward native speech lifecycle callbacks. */
