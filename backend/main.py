@@ -86,6 +86,7 @@ def detect(req: DetectRequest):
         results = model.predict(
             source=image,
             conf=req.confidence,
+            imgsz=640,
             verbose=False,
         )
     except Exception as exc:

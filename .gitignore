@@ -40,3 +40,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Python & YOLO
+venv/
+*.pt
+__pycache__/
+*.pyc
+
