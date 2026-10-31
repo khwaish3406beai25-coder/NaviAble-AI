@@ -18,7 +18,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance."
+          "cameraPermission": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance.",
+          "microphonePermission": "Allow NaviAble AI to access your microphone for voice assistance and wake-word activation."
         }
       ]
     ],
@@ -26,7 +27,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance.",
-        "NSPhotoLibraryUsageDescription": "Allow NaviAble AI to access your photos so you can choose an image for visual assistance."
+        "NSPhotoLibraryUsageDescription": "Allow NaviAble AI to access your photos so you can choose an image for visual assistance.",
+        "NSMicrophoneUsageDescription": "Allow NaviAble AI to access your microphone for voice assistance and wake-word activation."
       }
     },
     "android": {
@@ -37,7 +39,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "RECORD_AUDIO"
       ]
     },
     "web": {
