@@ -2,9 +2,27 @@
 
 Phase 1 Expo frontend for an accessible visual assistance app. The dashboard and image gallery flow are implemented. Gemini-powered image analysis (object detection, sign reading, scene description) is now live.
 
-## Run the app
+## Features
+
+- **Live Camera Capture:** Open the camera to aim at objects, signboards, or surroundings. Includes an accessible viewfinder guide, camera switching (rear/front), capture button, photo review, and retake/confirm flow.
+- **Gallery Upload:** Select images from your device photo library.
+- **Image Preview & Management:** View selected/captured images directly on the dashboard, with options to retake with camera, change from gallery, or remove.
+- **Soft Sage & Warm Ivory Theme:**
+  - Primary: `#315F4C`
+  - Secondary: `#789985`
+  - Background: `#F6F7F1`
+  - Cards: `#FFFFFF`
+  - Accent: `#E4EDE5`
+  - Text: `#24352D`
+- **Accessibility:** Screen-reader announcements (`AccessibilityInfo.announceForAccessibility`), accessible roles and labels on all camera and gallery controls.
+- **Future Capabilities (Phase 1 Placeholders):** Object Detection, Text Reading (OCR), and Voice Assistance.
+
+## Run the App
+
+Navigate into the project directory and run:
 
 ```bash
+cd NaviAble-AI
 npm install
 npx expo start
 ```
@@ -29,6 +47,7 @@ EXPO_PUBLIC_GEMINI_API_KEY=your_key_here
 
 ## Try it on Android
 
+<<<<<<< HEAD
 1. Install **Expo Go** on your Android device.
 2. From this project folder, run `npx expo start`.
 3. Connect your computer and phone to the same Wi-Fi network, then scan the QR code shown in the terminal with Expo Go.

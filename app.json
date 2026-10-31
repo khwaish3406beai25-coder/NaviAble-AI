@@ -6,27 +6,39 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "backgroundColor": "#FAF8FC",
+    "backgroundColor": "#F6F7F1",
     "plugins": [
       [
         "expo-image-picker",
         {
           "photosPermission": "Allow NaviAble AI to access your photos so you can choose an image for visual assistance.",
-          "cameraPermission": false,
-          "microphonePermission": false
+          "cameraPermission": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance."
         }
       ]
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow NaviAble AI to access your camera to capture objects, text, and surroundings for visual assistance.",
+        "NSPhotoLibraryUsageDescription": "Allow NaviAble AI to access your photos so you can choose an image for visual assistance."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F0EAF8",
+        "backgroundColor": "#E4EDE5",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

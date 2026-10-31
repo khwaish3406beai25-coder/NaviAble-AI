@@ -26,6 +26,7 @@ export default function App() {
   const [analysisError, setAnalysisError] = useState(null);
   const scrollRef = useRef(null);
 
+  // Gallery upload flow
   const chooseImage = async () => {
     if (busy) return;
     setBusy(true);
@@ -91,26 +92,46 @@ export default function App() {
           </View>
         </View>
 
+        {/* Welcome Section */}
         <View style={styles.welcome}>
           <Text style={styles.eyebrow}>A LITTLE MORE CLARITY, EVERY DAY</Text>
           <Text style={styles.title}>See the world{'\n'}differently.</Text>
           <Text style={styles.intro}>An intelligent companion to help you understand the world around you.</Text>
         </View>
 
+        {/* Image Selection / Preview Card */}
         <View style={styles.uploadCard}>
           <View style={styles.uploadIcon} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <Text style={styles.uploadIconText}>▧</Text>
+            <Text style={styles.uploadIconText}>{image ? '◉' : '▧'}</Text>
           </View>
-          <Text style={styles.cardTitle}>{image ? 'Your Image' : 'Upload an Image'}</Text>
+          <Text style={styles.cardTitle}>{image ? 'Your Image' : 'Select or Capture Image'}</Text>
           <Text style={styles.cardBody}>
-            {image ? 'Your image is ready for visual assistance.' : 'Choose an image to get started with visual assistance.'}
+            {image
+              ? 'Your image is ready for visual assistance.'
+              : 'Choose an image from your gallery or open the camera to capture your surroundings.'}
           </Text>
+
           {image ? (
             <>
-              <Image source={{ uri: image.uri }} style={styles.preview} resizeMode="cover" accessibilityLabel="Selected image preview" />
+              {/* Existing Image Preview Component */}
+              <Image
+                source={{ uri: image.uri }}
+                style={styles.preview}
+                resizeMode="cover"
+                accessibilityLabel="Selected image preview"
+              />
+
+              {/* Action Buttons: Replace via Camera, Replace via Gallery, or Remove */}
               <View style={styles.imageActions}>
-                <Pressable onPress={chooseImage} disabled={busy} accessibilityRole="button" accessibilityLabel="Change selected image" style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-                  <Text style={styles.secondaryButtonText}>Change Image</Text>
+                <Pressable
+                  onPress={openCamera}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Take new photo with camera"
+                  accessibilityHint="Opens camera to replace current photo"
+                  style={({ pressed }) => [styles.actionButton, styles.cameraAction, pressed && styles.pressed]}
+                >
+                  <Text style={styles.cameraActionText}>📷 Open Camera</Text>
                 </Pressable>
                 <Pressable onPress={() => { setImage(null); setAnalysis(null); setAnalysisError(null); }} accessibilityRole="button" accessibilityLabel="Remove selected image" style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}>
                   <Text style={styles.removeButtonText}>Remove</Text>
@@ -163,11 +184,36 @@ export default function App() {
               ) : null}
             </>
           ) : (
-            <Pressable onPress={chooseImage} disabled={busy} accessibilityRole="button" accessibilityLabel="Choose an image from your photo gallery" style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}>
-              <Text style={styles.primaryButtonText}>{busy ? 'Opening gallery…' : 'Choose Image'}</Text>
-              <Text style={styles.buttonArrow} accessibilityElementsHidden>›</Text>
-            </Pressable>
+            <View style={styles.buttonStack}>
+              {/* Option 1: Open Device Camera */}
+              <Pressable
+                onPress={openCamera}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel="Open Camera"
+                accessibilityHint="Opens the device camera to point at objects or text and capture a live image"
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}
+              >
+                <Text style={styles.buttonCameraIcon}>📷</Text>
+                <Text style={styles.primaryButtonText}>Open Camera</Text>
+                <Text style={styles.buttonArrow} accessibilityElementsHidden>›</Text>
+              </Pressable>
+
+              {/* Option 2: Upload from Photo Gallery */}
+              <Pressable
+                onPress={chooseImage}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel="Upload Image from photo gallery"
+                accessibilityHint="Opens device photo gallery to choose an image"
+                style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed, busy && styles.disabled]}
+              >
+                <Text style={styles.outlineButtonIcon}>▧</Text>
+                <Text style={styles.outlineButtonText}>{busy ? 'Opening gallery…' : 'Upload Image'}</Text>
+              </Pressable>
+            </View>
           )}
+
           <Text style={styles.privacyNote}>Your photos stay on your device.</Text>
         </View>
 
@@ -179,7 +225,9 @@ export default function App() {
             <Text style={styles.sectionEyebrow}>WHAT’S AHEAD</Text>
             <Text style={styles.sectionTitle}>More ways to explore</Text>
           </View>
-          <View style={styles.phasePill}><Text style={styles.phaseText}>PHASE 1</Text></View>
+          <View style={styles.phasePill}>
+            <Text style={styles.phaseText}>PHASE 1</Text>
+          </View>
         </View>
         <View style={styles.features}>
           <FeatureCard icon="⌕" title="Object Detection" description="Identify objects around you." />
@@ -187,11 +235,20 @@ export default function App() {
           <FeatureCard icon="◖" title="Voice Assistance" description="Interact with the app using voice commands." />
         </View>
 
+        {/* Footer */}
         <View style={styles.footer}>
           <View style={styles.footerRule} />
           <Text style={styles.footerText}>Designed to make visual assistance more accessible.</Text>
         </View>
       </ScrollView>
+
+      {/* Accessible Camera Modal */}
+      <CameraModal
+        visible={cameraVisible}
+        onClose={() => setCameraVisible(false)}
+        onCaptureConfirmed={handleCaptureConfirmed}
+        onChooseFromGallery={chooseImage}
+      />
     </SafeAreaView>
   );
 }
