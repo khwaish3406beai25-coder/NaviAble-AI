@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { colors } from './src/styles/theme';
-import { FeatureCard } from './src/components/FeatureCard';
 import { AnalysisResult } from './src/components/AnalysisResult';
 import { CameraModal } from './src/components/CameraModal';
 import { VoiceAssistant, VOICE_ASSISTANT_STATES } from './src/components/VoiceAssistant';
@@ -455,21 +454,6 @@ export default function App() {
           </View>
         ) : null}
 
-        <View style={styles.sectionHeading}>
-          <View>
-            <Text style={styles.sectionEyebrow}>WHAT’S AHEAD</Text>
-            <Text style={styles.sectionTitle}>More ways to explore</Text>
-          </View>
-          <View style={styles.phasePill}>
-            <Text style={styles.phaseText}>PHASE 1</Text>
-          </View>
-        </View>
-        <View style={styles.features}>
-          <FeatureCard icon="⌕" title="Object Detection" description="Identify objects around you." />
-          <FeatureCard icon="Aa" title="Read Text" description="Extract text from images and signboards." />
-          <FeatureCard icon="◖" title="Voice Assistance" description="Interact with the app using voice commands." />
-        </View>
-
         {/* Footer */}
         <View style={styles.footer}>
           <View style={styles.footerRule} />
@@ -532,12 +516,7 @@ const styles = StyleSheet.create({
   resultsBadgeText: { fontSize: 13, fontWeight: '700', color: '#2E7D32' },
   errorBox: { marginTop: 10, width: '100%', backgroundColor: '#FFF0F0', borderRadius: 12, borderWidth: 1, borderColor: '#F5C6C6', padding: 12 },
   errorText: { fontSize: 14, lineHeight: 20, color: '#C0392B' },
-  sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 34, marginBottom: 14 },
-  sectionEyebrow: { color: colors.primary, fontWeight: '700', fontSize: 10, letterSpacing: 1.3, lineHeight: 16 },
-  sectionTitle: { color: colors.text, fontSize: 21, lineHeight: 28, fontWeight: '700', letterSpacing: -0.4, marginTop: 2 },
-  phasePill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: colors.softLavender, marginBottom: 3 },
-  phaseText: { fontSize: 10, letterSpacing: 0.7, fontWeight: '700', color: colors.deepLavender },
-  features: { gap: 10 },
+
   detectButton: { marginTop: 10, width: '100%' },
   yoloCard: { marginTop: 18, backgroundColor: colors.white, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: 20, shadowColor: '#3C2B55', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
   yoloHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
