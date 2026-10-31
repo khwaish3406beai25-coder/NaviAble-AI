@@ -18,17 +18,8 @@ import { AnalysisResult } from './src/components/AnalysisResult';
 import { CameraModal } from './src/components/CameraModal';
 import { VoiceAssistant, VOICE_ASSISTANT_STATES } from './src/components/VoiceAssistant';
 import { analyzeImageWithGemini } from './src/services/gemini';
-import { createSpokenAnalysis, speakText, stopSpeaking } from './src/services/textToSpeech';
+import { formatConciseAnalysis, speakText, stopSpeaking } from './src/services/textToSpeech';
 import { detectObjectsWithYolo } from './src/services/yolo';
-
-function formatGeminiResponse(result) {
-  return [
-    result.scene,
-    result.objects?.length ? `Objects: ${result.objects.join(', ')}.` : '',
-    result.signsAndText?.length ? `Text found: ${result.signsAndText.join(', ')}.` : '',
-    result.observations,
-  ].filter((part) => typeof part === 'string' && part.trim()).join(' ');
-}
 
 export default function App() {
   const [image, setImage] = useState(null);
@@ -215,8 +206,9 @@ export default function App() {
     try {
       const result = await analyzeImageWithGemini(image);
       setAnalysis(result);
-      setVoiceResponse(formatGeminiResponse(result));
-      lastSpeechRef.current = createSpokenAnalysis(result);
+      const conciseResponse = formatConciseAnalysis(result);
+      setVoiceResponse(conciseResponse);
+      lastSpeechRef.current = conciseResponse;
       speakResponse(lastSpeechRef.current);
       setTimeout(() => {
         scrollRef.current?.scrollTo({ y: 380, animated: true });
