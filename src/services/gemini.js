@@ -17,17 +17,41 @@ const MODEL = 'gemini-3.5-flash';
 const MAX_IMAGE_DIMENSION = 3072;
 const MAX_INLINE_IMAGE_BYTES = 18 * 1024 * 1024;
 
-const PROMPT = `You are an accessibility assistant for a person who is blind or has low vision. Give a brief, useful account of what matters in this image. Use simple everyday English. Report only details that are clearly visible; never guess or present uncertainty as fact.
+/**
+ * Returns a tailored prompt depending on whether the user requested
+ * a general scene analysis or a prioritized OCR / signboard reading.
+ */
+function getPrompt(mode = 'general') {
+  if (mode === 'ocr' || mode === 'text_focus') {
+    return `You are an accessibility visual assistant for visually impaired users. Your primary task is to read all visible signs, text, signboards, labels, and printed or handwritten text in this image.
+
+Extract and transcribe all readable text verbatim, preserving original wording. Do not invent, hallucinate, or guess words that are illegible. If text is partially obscured, blurry, or cutoff, state what is clearly readable and explicitly communicate uncertainty for unclear parts.
+
+Respond in the following JSON format only, with no markdown fences or extra text:
+{
+  "scene": "A concise sentence describing where this text or signboard appears.",
+  "objects": ["List of clearly visible objects in the scene."],
+  "signsAndText": ["Exact verbatim wording of each readable sign, label, or text block."],
+  "textNotes": "Factual note describing text legibility, whether any text is partially cut off or blurry, or note that no readable text was found.",
+  "hazards": ["Any clearly visible obstacles or hazards directly near the pathway. Empty array if none."],
+  "observations": "1-2 sentences on what a visually impaired person needs to know about this text and setting. Communicate uncertainty if lighting or angle impairs reading."
+}`;
+  }
+
+  return `You are an accessibility assistant for a person who is blind or has low vision. Give a brief, useful account of what matters in this image. Use simple everyday English. Report only details that are clearly visible; never guess or present uncertainty as fact.
 
 Keep the spoken response to about 30-40 words and roughly 10-15 seconds. Start with one short sentence summarizing the scene. Prioritize nearby safety issues, especially clearly visible obstacles, stairs, vehicles, or other hazards; do not omit an important warning to meet the word target. Mention at most 3 important objects, using their position in the scene when clear. Include readable text only when it matters for navigation or safety, and at most 2 short items. Avoid decorative details and unnecessary descriptions of colour, texture, shape, or background. Give up to 5 short, important observations; include fewer when fewer useful facts are clearly visible.
 
-Respond in the following JSON format only, with no markdown fences or extra text. Keep the field names and types unchanged:
+Respond in the following JSON format only, with no markdown fences or extra text:
 {
-  "scene": "One short sentence summarizing the scene.",
-  "objects": ["Up to 3 important visible objects, with position when clear; use an empty array if none matter."],
-  "signsAndText": ["Up to 2 readable text items relevant to navigation or safety; use an empty array if none matter."],
-  "observations": "Up to 5 short, useful facts, with clearly visible safety concerns first. Use simple words and do not repeat details unnecessarily."
+  "scene": "A single concise factual sentence describing the overall scene or setting.",
+  "objects": ["List each clearly visible object as a short phrase."],
+  "signsAndText": ["List each clearly readable sign, label, or text verbatim. Empty array if none."],
+  "textNotes": "Brief factual note on text clarity or uncertainty if text is blurry or distant. Empty string if text is clear or absent.",
+  "hazards": ["List any clearly visible immediate obstacles or hazards (such as steps, curbs, wet floor, or blocked paths) only when actually visible. Empty array if none."],
+  "observations": "2-3 sentences describing what a visually impaired person most needs to know about this scene to understand surroundings. Communicate uncertainty if lighting, blur, or distance obscures details."
 }`;
+}
 
 /**
  * Sanitizes an error message to prevent accidental credential leakage.
@@ -123,8 +147,9 @@ async function prepareImageForGemini(imageInput) {
  * structured analysis object.
  *
  * @param {object|string} imageInput - Camera or ImagePicker asset with a local URI and optional dimensions/base64.
+ * @param {object} options - Options object, e.g. { mode: 'general' | 'ocr' }.
  */
-export async function analyzeImageWithGemini(imageInput) {
+export async function analyzeImageWithGemini(imageInput, options = {}) {
   const apiKey = (process.env.EXPO_PUBLIC_GEMINI_API_KEY || '').trim();
 
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
@@ -134,6 +159,8 @@ export async function analyzeImageWithGemini(imageInput) {
   }
 
   const { base64, mimeType } = await prepareImageForGemini(imageInput);
+  const mode = options?.mode || 'general';
+  const promptText = getPrompt(mode);
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
   const body = {
@@ -146,7 +173,7 @@ export async function analyzeImageWithGemini(imageInput) {
               data: base64,
             },
           },
-          { text: PROMPT },
+          { text: promptText },
         ],
       },
     ],
@@ -214,7 +241,10 @@ export async function analyzeImageWithGemini(imageInput) {
       scene: cleaned || 'Analysis complete, but the result format was unexpected.',
       objects: [],
       signsAndText: [],
+      textNotes: '',
+      hazards: [],
       observations: '',
+      mode,
     };
   }
 
@@ -222,6 +252,9 @@ export async function analyzeImageWithGemini(imageInput) {
     scene: typeof parsed.scene === 'string' ? parsed.scene : '',
     objects: Array.isArray(parsed.objects) ? parsed.objects : [],
     signsAndText: Array.isArray(parsed.signsAndText) ? parsed.signsAndText : [],
+    textNotes: typeof parsed.textNotes === 'string' ? parsed.textNotes : '',
+    hazards: Array.isArray(parsed.hazards) ? parsed.hazards : [],
     observations: typeof parsed.observations === 'string' ? parsed.observations : '',
+    mode,
   };
 }

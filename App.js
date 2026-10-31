@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   Image,
@@ -11,418 +12,500 @@ import {
   Text,
   View,
 } from 'react-native';
+
 import * as ImagePicker from 'expo-image-picker';
+
 import { colors } from './src/styles/theme';
-import { AnalysisResult } from './src/components/AnalysisResult';
+import { FeatureCard } from './src/components/FeatureCard';
 import { CameraModal } from './src/components/CameraModal';
-import { VoiceAssistant, VOICE_ASSISTANT_STATES } from './src/components/VoiceAssistant';
+import { VoiceActivationCard } from './src/components/VoiceActivationCard';
+import { AnalysisResult } from './src/components/AnalysisResult';
+
 import { analyzeImageWithGemini } from './src/services/gemini';
-import { formatConciseAnalysis, speakText, stopSpeaking } from './src/services/textToSpeech';
+import { speechManager } from './src/services/speechService';
 import { detectObjectsWithYolo } from './src/services/yolo';
 
 export default function App() {
   const [image, setImage] = useState(null);
   const [busy, setBusy] = useState(false);
   const [cameraVisible, setCameraVisible] = useState(false);
-  // analysis: null | { scene, objects, signsAndText, observations }
+
+  // Gemini analysis state
   const [analysis, setAnalysis] = useState(null);
   const [analysing, setAnalysing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
-  const [voiceState, setVoiceState] = useState(VOICE_ASSISTANT_STATES.IDLE);
-  const [voiceResponse, setVoiceResponse] = useState('');
-  const [voiceError, setVoiceError] = useState('');
-  const [voiceStatus, setVoiceStatus] = useState('');
+
   // YOLO detection state
   const [yoloResult, setYoloResult] = useState(null);
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState(null);
-  const scrollRef = useRef(null);
-  const speechRequestRef = useRef(0);
-  const lastSpeechRef = useRef('');
 
-  useEffect(() => () => {
-    speechRequestRef.current += 1;
-    stopSpeaking().catch(() => {});
+  const scrollRef = useRef(null);
+
+  // Cleanup speech on unmount
+  useEffect(() => {
+    return () => {
+      speechManager.stop();
+    };
   }, []);
 
-  const cancelSpeech = () => {
-    speechRequestRef.current += 1;
-    stopSpeaking().catch(() => {});
-    if (voiceState === VOICE_ASSISTANT_STATES.SPEAKING) {
-      setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
-      setVoiceStatus('Speech stopped. Ready for another image.');
-    }
-  };
-
-  const speakResponse = async (text) => {
-    const requestId = ++speechRequestRef.current;
-    const cleanText = typeof text === 'string' ? text.trim() : '';
-    if (!cleanText) {
-      setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
-      setVoiceError('No description was available to speak.');
-      setVoiceStatus('No description was available to speak.');
-      return;
-    }
-
-    setVoiceState(VOICE_ASSISTANT_STATES.PROCESSING);
-    setVoiceStatus('Preparing the spoken description.');
-    setVoiceError('');
-
-    try {
-      await stopSpeaking();
-      if (requestId !== speechRequestRef.current) return;
-
-      speakText(cleanText, {
-        onStart: () => {
-          if (requestId !== speechRequestRef.current) return;
-          setVoiceState(VOICE_ASSISTANT_STATES.SPEAKING);
-          setVoiceStatus('Speaking the image description now.');
-        },
-        onDone: () => {
-          if (requestId !== speechRequestRef.current) return;
-          setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
-          setVoiceStatus('Description finished. Ready for another image.');
-        },
-        onStopped: () => {
-          if (requestId !== speechRequestRef.current) return;
-          setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
-          setVoiceStatus('Speech stopped. Ready for another image.');
-        },
-        onError: () => {
-          if (requestId !== speechRequestRef.current) return;
-          const message = 'Text-to-speech is unavailable. You can still read the analysis on screen.';
-          setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
-          setVoiceError(message);
-          setVoiceStatus(message);
-        },
-      });
-    } catch {
-      if (requestId !== speechRequestRef.current) return;
-      const message = 'Text-to-speech is unavailable. You can still read the analysis on screen.';
-      setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
-      setVoiceError(message);
-      setVoiceStatus(message);
-    }
-  };
-
-  const repeatResponse = () => {
-    if (lastSpeechRef.current.trim()) speakResponse(lastSpeechRef.current);
-  };
-
-  const handleStopSpeaking = async () => {
-    speechRequestRef.current += 1;
-    setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
-    setVoiceStatus('Speech stopped. Ready for another image.');
-    setVoiceError('');
-    try {
-      await stopSpeaking();
-    } catch {
-      const message = 'Unable to stop speech. Please try again.';
-      setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
-      setVoiceError(message);
-      setVoiceStatus(message);
-    }
-  };
-
+  // Open camera
   const openCamera = () => {
-    cancelSpeech();
+    if (busy || analysing || detecting) return;
+
+    speechManager.stop();
     setCameraVisible(true);
   };
 
+  // Handle confirmed camera capture
   const handleCaptureConfirmed = (capturedImage) => {
-    cancelSpeech();
+    speechManager.stop();
+
     setImage(capturedImage);
     setAnalysis(null);
     setAnalysisError(null);
-    setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
-    setVoiceResponse('');
-    setVoiceError('');
-    setVoiceStatus('');
     setYoloResult(null);
     setDetectError(null);
     setCameraVisible(false);
+
+    AccessibilityInfo.announceForAccessibility(
+      'Captured photo selected successfully.'
+    );
   };
 
-  const handleCameraCaptureError = (message) => {
-    cancelSpeech();
-    setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
-    setVoiceResponse('');
-    setVoiceError(message);
-    setVoiceStatus(message);
-  };
-
-  // Gallery upload flow
+  // Select an image from the gallery
   const chooseImage = async () => {
-    if (busy) return;
-    cancelSpeech();
+    if (busy || analysing || detecting) return;
+
+    speechManager.stop();
     setBusy(true);
+
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
       if (!permission.granted) {
         Alert.alert(
           'Gallery access needed',
-          'Allow photo access in your device settings to choose an image for visual assistance.',
-          [{ text: 'OK' }],
+          'Allow photo access in your device settings to select an image.',
+          [{ text: 'OK' }]
         );
+
         return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
-        quality: 0.8,
-        base64: true,
+        quality: 0.9,
       });
+
       if (!result.canceled && result.assets?.[0]?.uri) {
         setImage(result.assets[0]);
-        // Clear previous analysis when a new image is picked.
         setAnalysis(null);
         setAnalysisError(null);
-        setVoiceState(VOICE_ASSISTANT_STATES.IDLE);
-        setVoiceResponse('');
-        setVoiceError('');
-        setVoiceStatus('');
         setYoloResult(null);
         setDetectError(null);
+
+        AccessibilityInfo.announceForAccessibility(
+          'Image selected from gallery.'
+        );
       }
     } catch (error) {
-      Alert.alert('Unable to open gallery', 'Please try again in a moment.');
+      console.error('Gallery error:', error);
+
+      Alert.alert(
+        'Unable to open gallery',
+        'Please try again in a moment.'
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  const analyzeImage = async () => {
-    if (!image?.uri || analysing) return;
-    cancelSpeech();
+  // Analyse the selected image using Gemini
+  const analyzeImage = async (mode = 'general') => {
+    if (!image?.uri || analysing || busy) return;
+
+    speechManager.stop();
+
     setAnalysing(true);
     setAnalysis(null);
     setAnalysisError(null);
-    setVoiceState(VOICE_ASSISTANT_STATES.PROCESSING);
-    setVoiceResponse('');
-    setVoiceError('');
-    setVoiceStatus('Analyzing the image.');
+
     try {
-      const result = await analyzeImageWithGemini(image);
+      const result = await analyzeImageWithGemini(image, { mode });
+
       setAnalysis(result);
-      const conciseResponse = formatConciseAnalysis(result);
-      setVoiceResponse(conciseResponse);
-      lastSpeechRef.current = conciseResponse;
-      speakResponse(lastSpeechRef.current);
+
+      AccessibilityInfo.announceForAccessibility(
+        'Image analysis completed. Results are available below.'
+      );
+
       setTimeout(() => {
-        scrollRef.current?.scrollTo({ y: 380, animated: true });
-      }, 150);
-    } catch (err) {
-      const message = err.message ?? 'An unexpected error occurred. Please try again.';
-      setAnalysisError(message);
-      setVoiceError(message);
-      setVoiceStatus(message);
-      setVoiceState(VOICE_ASSISTANT_STATES.ERROR);
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 200);
+    } catch (error) {
+      console.error('Image analysis error:', error);
+
+      setAnalysisError(
+        error?.message ||
+        'Unable to analyse this image. Please try again.'
+      );
     } finally {
       setAnalysing(false);
     }
   };
 
+  // Detect objects with YOLOv8 backend
   const detectObjects = async () => {
-    if (!image?.uri || detecting) return;
+    if (!image?.uri || detecting || busy) return;
+
+    speechManager.stop();
     setDetecting(true);
     setYoloResult(null);
     setDetectError(null);
+
     try {
       const result = await detectObjectsWithYolo(image);
       setYoloResult(result);
+
+      AccessibilityInfo.announceForAccessibility(
+        `Object detection completed. ${result.summary}`
+      );
+
       setTimeout(() => {
-        scrollRef.current?.scrollTo({ y: 500, animated: true });
-      }, 150);
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 200);
     } catch (err) {
+      console.error('YOLO detection error:', err);
       setDetectError(err.message ?? 'Object detection failed. Please try again.');
     } finally {
       setDetecting(false);
     }
   };
 
+  // Remove the selected image
+  const handleRemoveImage = () => {
+    speechManager.stop();
+
+    setImage(null);
+    setAnalysis(null);
+    setAnalysisError(null);
+    setYoloResult(null);
+    setDetectError(null);
+
+    AccessibilityInfo.announceForAccessibility(
+      'Selected image removed.'
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor={colors.background}
+      />
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
         <View style={styles.header}>
-          <View style={styles.brandMark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <Text style={styles.brandMarkText}>◉</Text>
+          <View
+            style={styles.brandMark}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            <View style={styles.brandIcon}>
+              <Text style={styles.brandSymbol}>◎</Text>
+            </View>
+            <View>
+              <Text style={styles.brandName}>NaviAble</Text>
+              <Text style={styles.brandSubtitle}>
+                Your AI-powered visual companion.
+              </Text>
+            </View>
           </View>
-          <View style={styles.brandCopy}>
-            <Text style={styles.brandName}>NaviAble AI</Text>
-            <Text style={styles.brandSubtitle}>Your AI-powered visual companion.</Text>
-          </View>
-        </View>
 
-        {/* Welcome Section */}
-        <View style={styles.welcome}>
           <Text style={styles.eyebrow}>A LITTLE MORE CLARITY, EVERY DAY</Text>
           <Text style={styles.title}>See the world{'\n'}differently.</Text>
-          <Text style={styles.intro}>An intelligent companion to help you understand the world around you.</Text>
+          <Text style={styles.intro}>
+            An intelligent companion designed to help you navigate,
+            explore, and understand your surroundings with confidence.
+          </Text>
         </View>
 
-        <VoiceAssistant
-          state={voiceState}
-          responseText={voiceResponse}
-          errorMessage={voiceError}
-          statusAnnouncement={voiceStatus}
-          canRepeatResponse={Boolean(voiceResponse.trim() && lastSpeechRef.current.trim())}
-          onRepeatResponse={repeatResponse}
-          onStopSpeaking={handleStopSpeaking}
-        />
-
-        {/* Image Selection / Preview Card */}
+        {/* Upload / Capture Card */}
         <View style={styles.uploadCard}>
-          <View style={styles.uploadIcon} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <Text style={styles.uploadIconText}>{image ? '◉' : '▧'}</Text>
+          <View
+            style={styles.uploadIcon}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            <Text style={styles.uploadIconText}>✦</Text>
           </View>
-          <Text style={styles.cardTitle}>{image ? 'Your Image' : 'Select or Capture Image'}</Text>
+          <Text style={styles.cardTitle}>Explore an image</Text>
           <Text style={styles.cardBody}>
-            {image
-              ? 'Your image is ready for visual assistance.'
-              : 'Choose an image from your gallery or open the camera to capture your surroundings.'}
+            Point your camera or choose a photo to hear what is around you.
           </Text>
 
           {image ? (
             <>
-              {/* Existing Image Preview Component */}
               <Image
                 source={{ uri: image.uri }}
                 style={styles.preview}
                 resizeMode="cover"
+                accessible
+                accessibilityRole="image"
                 accessibilityLabel="Selected image preview"
               />
 
-              {/* Action Buttons: Replace via Camera, Replace via Gallery, or Remove */}
               <View style={styles.imageActions}>
                 <Pressable
                   onPress={openCamera}
-                  disabled={busy}
+                  disabled={busy || analysing || detecting}
                   accessibilityRole="button"
-                  accessibilityLabel="Take new photo with camera"
-                  accessibilityHint="Opens camera to replace current photo"
-                  style={({ pressed }) => [styles.actionButton, styles.cameraAction, pressed && styles.pressed]}
+                  accessibilityLabel="Retake with camera"
+                  accessibilityHint="Opens the camera to capture a new photo"
+                  style={({ pressed }) => [
+                    styles.actionButton,
+                    styles.cameraAction,
+                    (busy || analysing || detecting) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
                 >
-                  <Text style={styles.cameraActionText}>📷 Open Camera</Text>
+                  <Text style={styles.cameraActionText}>Retake Photo</Text>
                 </Pressable>
-                <Pressable onPress={() => { cancelSpeech(); lastSpeechRef.current = ''; setImage(null); setAnalysis(null); setAnalysisError(null); setVoiceResponse(''); setVoiceState(VOICE_ASSISTANT_STATES.IDLE); setVoiceStatus(''); }} accessibilityRole="button" accessibilityLabel="Remove selected image" style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}>
+
+                <Pressable
+                  onPress={chooseImage}
+                  disabled={busy || analysing || detecting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Change image from gallery"
+                  accessibilityHint="Opens your photo library to select a different image"
+                  style={({ pressed }) => [
+                    styles.actionButton,
+                    styles.galleryAction,
+                    (busy || analysing || detecting) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.galleryActionText}>Change Image</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={handleRemoveImage}
+                  disabled={busy || analysing || detecting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove image"
+                  accessibilityHint="Clears the current photo selection"
+                  style={({ pressed }) => [
+                    styles.removeButton,
+                    (busy || analysing || detecting) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
                   <Text style={styles.removeButtonText}>Remove</Text>
                 </Pressable>
               </View>
 
-              {/* Analyse Image button */}
-              <Pressable
-                onPress={analyzeImage}
-                disabled={analysing}
-                accessibilityRole="button"
-                accessibilityLabel="Analyse image with AI"
-                accessibilityHint="Sends the selected image to Gemini for object and scene analysis"
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  styles.analyseButton,
-                  pressed && styles.pressed,
-                  analysing && styles.disabled,
-                ]}
-              >
-                {analysing ? (
-                  <ActivityIndicator color={colors.white} size="small" accessibilityLabel="Analysing image, please wait" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>
-                    {analysis ? 'Analyse Again' : 'Analyse Image'}
-                  </Text>
-                )}
-                {!analysing && (
-                  <Text style={styles.buttonArrow} accessibilityElementsHidden>›</Text>
-                )}
-              </Pressable>
-
-              {/* Detect Objects (YOLO) button */}
-              <Pressable
-                onPress={detectObjects}
-                disabled={detecting}
-                accessibilityRole="button"
-                accessibilityLabel="Detect objects in image"
-                accessibilityHint="Sends the image to the YOLO model to identify objects"
-                style={({ pressed }) => [
-                  styles.outlineButton,
-                  styles.detectButton,
-                  pressed && styles.pressed,
-                  detecting && styles.disabled,
-                ]}
-              >
-                {detecting ? (
-                  <ActivityIndicator color={colors.primary} size="small" accessibilityLabel="Detecting objects, please wait" />
-                ) : (
-                  <Text style={styles.outlineButtonText}>⌕ Detect Objects</Text>
-                )}
-              </Pressable>
-
-              {/* YOLO detection error */}
-              {detectError ? (
-                <View style={styles.errorBox} accessible accessibilityRole="alert" accessibilityLabel={`Detection error: ${detectError}`}>
-                  <Text style={styles.errorText}>{detectError}</Text>
-                </View>
-              ) : null}
-
-              {/* Analysis success badge */}
-              {analysis ? (
+              {/* Analysis & Detection Action Buttons */}
+              <View style={styles.analyseButtonsContainer}>
+                {/* 1. General Scene & Object Analysis */}
                 <Pressable
-                  onPress={() => scrollRef.current?.scrollTo({ y: 380, animated: true })}
+                  onPress={() => analyzeImage('general')}
+                  disabled={busy || analysing || detecting}
                   accessibilityRole="button"
-                  accessibilityLabel="Scroll down to view analysis results"
-                  style={({ pressed }) => [styles.resultsBadge, pressed && styles.pressed]}
+                  accessibilityLabel={
+                    analysing
+                      ? 'Analysing scene and objects, please wait'
+                      : 'Analyse scene and objects'
+                  }
+                  accessibilityHint="Sends image to Gemini for scene and object description"
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    styles.analyseButton,
+                    (busy || analysing || detecting) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
                 >
-                  <Text style={styles.resultsBadgeText}>✓ Analysis complete — View results below ↓</Text>
+                  {analysing ? (
+                    <>
+                      <ActivityIndicator
+                        color={colors.white}
+                        size="small"
+                        accessibilityElementsHidden
+                      />
+                      <Text style={styles.loadingText}>Analysing Scene...</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.buttonCameraIcon}>◎</Text>
+                      <Text style={styles.primaryButtonText}>
+                        Analyse Scene & Objects
+                      </Text>
+                      <Text style={styles.buttonArrow}>→</Text>
+                    </>
+                  )}
                 </Pressable>
-              ) : null}
 
-              {/* Analysis error */}
-              {analysisError ? (
-                <View style={styles.errorBox} accessible accessibilityRole="alert" accessibilityLabel={`Error: ${analysisError}`}>
+                {/* 2. OCR / Signboard Reading */}
+                <Pressable
+                  onPress={() => analyzeImage('ocr')}
+                  disabled={busy || analysing || detecting}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    analysing
+                      ? 'Reading signs and text, please wait'
+                      : 'Read signs and text'
+                  }
+                  accessibilityHint="Prioritizes reading visible text, labels, and signboards verbatim"
+                  style={({ pressed }) => [
+                    styles.ocrButton,
+                    (busy || analysing || detecting) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.ocrButtonIcon}>Aa</Text>
+                  <Text style={styles.ocrButtonText}>Read Signs & Text</Text>
+                </Pressable>
+
+                {/* 3. YOLO Object Detection */}
+                <Pressable
+                  onPress={detectObjects}
+                  disabled={busy || analysing || detecting}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    detecting
+                      ? 'Detecting objects with YOLO, please wait'
+                      : 'Detect objects in image'
+                  }
+                  accessibilityHint="Sends the image to the YOLO model to identify and locate objects"
+                  style={({ pressed }) => [
+                    styles.detectButton,
+                    (busy || analysing || detecting) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {detecting ? (
+                    <View style={styles.detectButtonInner}>
+                      <ActivityIndicator
+                        color={colors.primary}
+                        size="small"
+                        accessibilityElementsHidden
+                      />
+                      <Text style={styles.detectButtonText}>Detecting Objects...</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.detectButtonInner}>
+                      <Text style={styles.ocrButtonIcon}>⌕</Text>
+                      <Text style={styles.detectButtonText}>Detect Objects (YOLO)</Text>
+                    </View>
+                  )}
+                </Pressable>
+              </View>
+
+              {/* Status Badges */}
+              {analysis && (
+                <View
+                  style={styles.resultsBadge}
+                  accessible
+                  accessibilityRole="text"
+                  accessibilityLabel="Analysis ready. Results are displayed below."
+                >
+                  <Text style={styles.resultsBadgeText}>
+                    ✓ Analysis Ready (See Below)
+                  </Text>
+                </View>
+              )}
+
+              {/* Gemini Error Message */}
+              {analysisError && (
+                <View
+                  style={styles.errorBox}
+                  accessible
+                  accessibilityRole="alert"
+                  accessibilityLabel={`Analysis error: ${analysisError}`}
+                >
                   <Text style={styles.errorText}>{analysisError}</Text>
                 </View>
-              ) : null}
+              )}
+
+              {/* YOLO Error Message */}
+              {detectError && (
+                <View
+                  style={styles.errorBox}
+                  accessible
+                  accessibilityRole="alert"
+                  accessibilityLabel={`Detection error: ${detectError}`}
+                >
+                  <Text style={styles.errorText}>{detectError}</Text>
+                </View>
+              )}
             </>
           ) : (
             <View style={styles.buttonStack}>
-              {/* Option 1: Open Device Camera */}
+              {/* Camera Button */}
               <Pressable
                 onPress={openCamera}
                 disabled={busy}
                 accessibilityRole="button"
-                accessibilityLabel="Open Camera"
-                accessibilityHint="Opens the device camera to point at objects or text and capture a live image"
-                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}
+                accessibilityLabel="Open camera"
+                accessibilityHint="Opens the camera to take a photo for visual assistance"
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  busy && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
               >
                 <Text style={styles.buttonCameraIcon}>📷</Text>
                 <Text style={styles.primaryButtonText}>Open Camera</Text>
-                <Text style={styles.buttonArrow} accessibilityElementsHidden>›</Text>
+                <Text style={styles.buttonArrow}>→</Text>
               </Pressable>
 
-              {/* Option 2: Upload from Photo Gallery */}
+              {/* Gallery Button */}
               <Pressable
                 onPress={chooseImage}
                 disabled={busy}
                 accessibilityRole="button"
-                accessibilityLabel="Upload Image from photo gallery"
-                accessibilityHint="Opens device photo gallery to choose an image"
-                style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed, busy && styles.disabled]}
+                accessibilityLabel={busy ? 'Opening gallery, please wait' : 'Upload Image'}
+                accessibilityHint="Opens your photo library to choose an image for visual assistance"
+                style={({ pressed }) => [
+                  styles.outlineButton,
+                  busy && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
               >
-                <Text style={styles.outlineButtonIcon}>▧</Text>
-                <Text style={styles.outlineButtonText}>{busy ? 'Opening gallery…' : 'Upload Image'}</Text>
+                <Text style={styles.outlineButtonIcon}>📁</Text>
+                <Text style={styles.outlineButtonText}>
+                  {busy ? 'Opening gallery...' : 'Upload Image'}
+                </Text>
               </Pressable>
             </View>
           )}
 
-          <Text style={styles.privacyNote}>Your photos stay on your device.</Text>
+          <Text style={styles.privacyNote}>
+            Your photos stay on your device.
+          </Text>
         </View>
 
-        {/* Analysis results rendered outside the upload card */}
-        {analysis ? <AnalysisResult result={analysis} /> : null}
+        {/* Gemini Analysis Results */}
+        {analysis && (
+          <View style={styles.analysisSection}>
+            <Text style={styles.sectionEyebrow}>
+              YOUR RESULTS
+            </Text>
+            <Text style={styles.sectionTitle}>
+              Understanding your surroundings
+            </Text>
+            <AnalysisResult result={analysis} />
+          </View>
+        )}
 
-        {/* YOLO detection results */}
-        {yoloResult ? (
+        {/* YOLO Detection Results */}
+        {yoloResult && (
           <View style={styles.yoloCard}>
             <View style={styles.yoloHeader}>
               <Text style={styles.yoloHeaderIcon} accessibilityElementsHidden>⌕</Text>
@@ -438,7 +521,7 @@ export default function App() {
             >
               {yoloResult.summary}
             </Text>
-            {yoloResult.detections.length > 0 && (
+            {yoloResult.detections?.length > 0 && (
               <View style={styles.yoloList}>
                 {yoloResult.detections.map((d, idx) => (
                   <View key={idx} style={styles.yoloItem}>
@@ -452,12 +535,59 @@ export default function App() {
               Powered by YOLOv8n · Results may vary by image quality.
             </Text>
           </View>
-        ) : null}
+        )}
+
+        {/* Voice Assistance & Roadmap Section */}
+        <View style={styles.sectionHeading}>
+          <View>
+            <Text style={styles.sectionEyebrow}>
+              VOICE & FEATURES
+            </Text>
+            <Text style={styles.sectionTitle}>
+              More ways to explore
+            </Text>
+          </View>
+          <View style={styles.phasePill}>
+            <Text style={styles.phaseText}>LIVE</Text>
+          </View>
+        </View>
+
+        <View style={styles.features}>
+          <VoiceActivationCard
+            hasImage={Boolean(image)}
+            hasAnalysis={Boolean(analysis)}
+            hasRecognizedText={Boolean(
+              analysis?.signsAndText?.length > 0
+            )}
+            onOpenCamera={openCamera}
+            onChooseGallery={chooseImage}
+            onAnalyseImage={() => analyzeImage('general')}
+            onListenAnalysis={() =>
+              speechManager.speakAnalysis(analysis)
+            }
+            onReadText={() =>
+              speechManager.speakTextOnly(analysis)
+            }
+          />
+
+          <FeatureCard
+            icon="⌕"
+            title="Real-Time Detection"
+            description="Identify objects, signs, and hazards in your environment."
+          />
+          <FeatureCard
+            icon="Aa"
+            title="Read Text"
+            description="Extract text from signboards, menus, and labels."
+          />
+        </View>
 
         {/* Footer */}
         <View style={styles.footer}>
           <View style={styles.footerRule} />
-          <Text style={styles.footerText}>Designed to make visual assistance more accessible.</Text>
+          <Text style={styles.footerText}>
+            Designed to make visual assistance more accessible.
+          </Text>
         </View>
       </ScrollView>
 
@@ -465,72 +595,541 @@ export default function App() {
       <CameraModal
         visible={cameraVisible}
         onClose={() => setCameraVisible(false)}
-        onCaptureConfirmed={handleCaptureConfirmed}
-        onCaptureError={handleCameraCaptureError}
-        onChooseFromGallery={chooseImage}
+        onCapture={handleCaptureConfirmed}
       />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  content: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 32, maxWidth: 600, width: '100%', alignSelf: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 35 },
-  brandMark: { width: 46, height: 46, borderRadius: 16, backgroundColor: colors.softLavender, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  brandMarkText: { color: colors.primary, fontSize: 28, fontWeight: '700' },
-  brandCopy: { flex: 1 },
-  brandName: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: colors.text, letterSpacing: -0.3 },
-  brandSubtitle: { fontSize: 13, lineHeight: 19, color: colors.secondaryText },
-  welcome: { marginBottom: 24 },
-  eyebrow: { fontSize: 10, lineHeight: 16, letterSpacing: 1.4, fontWeight: '700', color: colors.primary, marginBottom: 10 },
-  title: { fontSize: 36, lineHeight: 42, fontWeight: '700', letterSpacing: -1.1, color: colors.text },
-  intro: { marginTop: 11, maxWidth: 330, fontSize: 16, lineHeight: 24, color: colors.secondaryText },
-  uploadCard: { backgroundColor: colors.white, borderRadius: 22, borderWidth: 1, borderColor: colors.border, padding: 22, alignItems: 'flex-start', shadowColor: '#3C2B55', shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, elevation: 2 },
-  uploadIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: colors.softLavender, alignItems: 'center', justifyContent: 'center', marginBottom: 17 },
-  uploadIconText: { fontSize: 26, lineHeight: 31, color: colors.primary, fontWeight: '600' },
-  cardTitle: { fontSize: 21, lineHeight: 28, fontWeight: '700', letterSpacing: -0.35, color: colors.text },
-  cardBody: { fontSize: 15, lineHeight: 22, color: colors.secondaryText, marginTop: 5, marginBottom: 19 },
-  primaryButton: { height: 54, borderRadius: 15, paddingHorizontal: 18, width: '100%', backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-  primaryButtonText: { color: colors.white, fontWeight: '700', fontSize: 16 },
-  buttonArrow: { position: 'absolute', right: 17, color: colors.white, fontSize: 25, lineHeight: 29 },
-  buttonStack: { width: '100%', gap: 12 },
-  buttonCameraIcon: { fontSize: 20, marginRight: 10 },
-  outlineButton: { height: 54, borderRadius: 15, paddingHorizontal: 18, width: '100%', backgroundColor: 'transparent', borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-  outlineButtonIcon: { fontSize: 18, marginRight: 10, color: colors.primary },
-  outlineButtonText: { color: colors.primary, fontWeight: '700', fontSize: 16 },
-  actionButton: { flex: 1, minHeight: 48, paddingHorizontal: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  cameraAction: { backgroundColor: colors.softLavender, borderWidth: 1, borderColor: colors.primary },
-  cameraActionText: { fontSize: 14, fontWeight: '700', color: colors.primary },
-  pressed: { opacity: 0.82 },
-  disabled: { opacity: 0.7 },
-  privacyNote: { alignSelf: 'center', color: colors.secondaryText, fontSize: 12, marginTop: 13 },
-  preview: { width: '100%', height: 220, borderRadius: 15, backgroundColor: colors.softLavender, marginTop: 2 },
-  imageActions: { flexDirection: 'row', alignItems: 'center', width: '100%', marginTop: 12, gap: 10 },
-  secondaryButton: { flex: 1, minHeight: 48, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  secondaryButtonText: { fontSize: 15, fontWeight: '700', color: colors.deepLavender },
-  removeButton: { minHeight: 48, minWidth: 82, paddingHorizontal: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8F5FA' },
-  removeButtonText: { fontSize: 15, fontWeight: '600', color: colors.secondaryText },
-  analyseButton: { marginTop: 12, width: '100%' },
-  resultsBadge: { marginTop: 10, width: '100%', backgroundColor: '#EDF7EE', borderRadius: 12, borderWidth: 1, borderColor: '#C8E6C9', paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
-  resultsBadgeText: { fontSize: 13, fontWeight: '700', color: '#2E7D32' },
-  errorBox: { marginTop: 10, width: '100%', backgroundColor: '#FFF0F0', borderRadius: 12, borderWidth: 1, borderColor: '#F5C6C6', padding: 12 },
-  errorText: { fontSize: 14, lineHeight: 20, color: '#C0392B' },
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
 
-  detectButton: { marginTop: 10, width: '100%' },
-  yoloCard: { marginTop: 18, backgroundColor: colors.white, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: 20, shadowColor: '#3C2B55', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
-  yoloHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
-  yoloHeaderIcon: { color: colors.primary, fontSize: 20, fontWeight: '700' },
-  yoloHeaderTitle: { fontSize: 17, fontWeight: '700', color: colors.text, letterSpacing: -0.3, flex: 1 },
-  yoloBadge: { backgroundColor: colors.softLavender, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  yoloBadgeText: { fontSize: 11, fontWeight: '700', color: colors.primary, letterSpacing: 0.4 },
-  yoloSummary: { fontSize: 15, lineHeight: 22, color: colors.text, marginBottom: 14 },
-  yoloList: { gap: 6, marginBottom: 14 },
-  yoloItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.softLavender, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  yoloLabel: { fontSize: 14, fontWeight: '600', color: colors.text, textTransform: 'capitalize' },
-  yoloConf: { fontSize: 13, fontWeight: '700', color: colors.primary },
-  yoloDisclaimer: { fontSize: 11, lineHeight: 17, color: colors.secondaryText, fontStyle: 'italic', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
-  footer: { marginTop: 28, alignItems: 'center' },
-  footerRule: { width: 36, height: 3, borderRadius: 2, backgroundColor: colors.border, marginBottom: 13 },
-  footerText: { maxWidth: 250, color: colors.secondaryText, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  content: {
+    paddingHorizontal: 22,
+    paddingTop: 8,
+    paddingBottom: 40,
+  },
+
+  header: {
+    marginTop: 10,
+    marginBottom: 24,
+  },
+
+  brandMark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 22,
+    gap: 12,
+  },
+
+  brandIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.accent,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  brandSymbol: {
+    fontSize: 22,
+    color: colors.primary,
+    fontWeight: '700',
+  },
+
+  brandName: {
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+    color: colors.primary,
+  },
+
+  brandSubtitle: {
+    fontSize: 12,
+    color: colors.secondaryText,
+    marginTop: 1,
+  },
+
+  eyebrow: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 11,
+    letterSpacing: 1.4,
+    marginBottom: 10,
+  },
+
+  title: {
+    fontSize: 38,
+    lineHeight: 42,
+    letterSpacing: -0.9,
+    color: colors.text,
+    fontWeight: '700',
+    marginBottom: 13,
+  },
+
+  intro: {
+    color: colors.secondaryText,
+    fontSize: 16,
+    lineHeight: 24,
+    maxWidth: 340,
+  },
+
+  uploadCard: {
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    shadowColor: '#24352D',
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+
+  uploadIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 17,
+  },
+
+  uploadIconText: {
+    fontSize: 26,
+    lineHeight: 31,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+
+  cardTitle: {
+    fontSize: 21,
+    lineHeight: 28,
+    fontWeight: '700',
+    letterSpacing: -0.35,
+    color: colors.text,
+  },
+
+  cardBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.secondaryText,
+    marginTop: 5,
+    marginBottom: 19,
+  },
+
+  buttonStack: {
+    width: '100%',
+    gap: 12,
+  },
+
+  primaryButton: {
+    minHeight: 54,
+    borderRadius: 15,
+    paddingHorizontal: 18,
+    width: '100%',
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+
+  primaryButtonText: {
+    color: colors.white,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+
+  loadingText: {
+    color: colors.white,
+    fontWeight: '700',
+    fontSize: 14,
+    marginLeft: 10,
+  },
+
+  buttonCameraIcon: {
+    fontSize: 18,
+    marginRight: 10,
+    color: colors.white,
+    fontWeight: '700',
+  },
+
+  buttonArrow: {
+    position: 'absolute',
+    right: 17,
+    color: colors.white,
+    fontSize: 25,
+    lineHeight: 29,
+  },
+
+  outlineButton: {
+    minHeight: 52,
+    borderRadius: 15,
+    paddingHorizontal: 18,
+    width: '100%',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+
+  outlineButtonIcon: {
+    fontSize: 18,
+    color: colors.primary,
+    marginRight: 8,
+    fontWeight: '700',
+  },
+
+  outlineButtonText: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+
+  pressed: {
+    opacity: 0.82,
+  },
+
+  disabled: {
+    opacity: 0.6,
+  },
+
+  privacyNote: {
+    alignSelf: 'center',
+    color: colors.secondaryText,
+    fontSize: 12,
+    marginTop: 13,
+  },
+
+  preview: {
+    width: '100%',
+    height: 220,
+    borderRadius: 15,
+    backgroundColor: colors.accent,
+    marginTop: 2,
+  },
+
+  imageActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 12,
+    gap: 8,
+  },
+
+  actionButton: {
+    flex: 1,
+    minHeight: 46,
+    paddingHorizontal: 8,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  cameraAction: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+
+  cameraActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.white,
+  },
+
+  galleryAction: {
+    borderColor: colors.primary,
+    backgroundColor: colors.white,
+  },
+
+  galleryActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
+  removeButton: {
+    minHeight: 46,
+    minWidth: 64,
+    paddingHorizontal: 8,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+  },
+
+  removeButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.text,
+  },
+
+  analyseButtonsContainer: {
+    width: '100%',
+    marginTop: 12,
+    gap: 10,
+  },
+
+  analyseButton: {
+    width: '100%',
+  },
+
+  ocrButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    width: '100%',
+    paddingHorizontal: 12,
+  },
+
+  ocrButtonIcon: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.primary,
+    marginRight: 8,
+  },
+
+  ocrButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
+  detectButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingHorizontal: 12,
+  },
+
+  detectButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  detectButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
+  resultsBadge: {
+    marginTop: 10,
+    width: '100%',
+    backgroundColor: '#EDF7EE',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  resultsBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E7D32',
+  },
+
+  errorBox: {
+    marginTop: 10,
+    width: '100%',
+    backgroundColor: colors.errorBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.error,
+    padding: 12,
+  },
+
+  errorText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.error,
+  },
+
+  analysisSection: {
+    marginTop: 28,
+  },
+
+  sectionHeading: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginTop: 34,
+    marginBottom: 14,
+  },
+
+  sectionEyebrow: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 10,
+    letterSpacing: 1.3,
+    lineHeight: 16,
+  },
+
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 21,
+    lineHeight: 28,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+    marginTop: 2,
+  },
+
+  phasePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: colors.accent,
+    marginBottom: 3,
+  },
+
+  phaseText: {
+    fontSize: 10,
+    letterSpacing: 0.7,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
+  features: {
+    gap: 10,
+  },
+
+  yoloCard: {
+    marginTop: 18,
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 20,
+    shadowColor: '#24352D',
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+
+  yoloHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+
+  yoloHeaderIcon: {
+    color: colors.primary,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+
+  yoloHeaderTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.text,
+    letterSpacing: -0.3,
+    flex: 1,
+  },
+
+  yoloBadge: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+
+  yoloBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary,
+    letterSpacing: 0.4,
+  },
+
+  yoloSummary: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.text,
+    marginBottom: 14,
+  },
+
+  yoloList: {
+    gap: 6,
+    marginBottom: 14,
+  },
+
+  yoloItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+
+  yoloLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    textTransform: 'capitalize',
+  },
+
+  yoloConf: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
+  yoloDisclaimer: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: colors.secondaryText,
+    fontStyle: 'italic',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 12,
+  },
+
+  footer: {
+    marginTop: 28,
+    alignItems: 'center',
+  },
+
+  footerRule: {
+    width: 36,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    marginBottom: 13,
+  },
+
+  footerText: {
+    maxWidth: 250,
+    color: colors.secondaryText,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
 });
